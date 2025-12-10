@@ -1,0 +1,34 @@
+[
+  {
+    "id": "admin",
+    "username": "admin",
+    "salt": "admin",
+    "hash": "9f28a9a41aef33c6e7c7f1f81a748bbf65471929e08f2666130eef5c1ee85eb9ea54f5bb77adf1ba8b7133ded0637b068d98f565cfd1a2101a7ef34f36febce0",
+    "role": "system_admin",
+    "name": "System Admin"
+  },
+  {
+    "id": "teacher1",
+    "username": "teacher1",
+    "salt": "teacher1",
+    "hash": "9206dee062d1bd65fcefac52b154c92a76b73276593b98f3a1693999272fa45e9e5635d68f8bd15e238a0994b9b1efaa9660eb20774353c086c568cde6be3275",
+    "role": "teacher",
+    "name": "Dr. Smith"
+  },
+  {
+    "id": "student1",
+    "username": "student1",
+    "salt": "student1",
+    "hash": "b06069a7118e3a83c0050dc4185c615e4e32ca08198c0505072c7e3270649590318c23d96afeb18c8a4bc2dc1e701ee9ebc8fda387a50bdefeaabf83627d6d49",
+    "role": "student",
+    "name": "John Doe"
+  },
+  {
+    "id": "tadmin",
+    "username": "tadmin",
+    "salt": "tadmin",
+    "hash": "a0dc365b70256c4b61b50029448aa27d7835313c760228af916602608671390db0e6714f7feff6b0f5fa95a1b6c15f6eb92592aa2e84628a05a061ec73a8cfb8",
+    "role": "teaching_admin",
+    "name": "Teaching Manager"
+  }
+]
