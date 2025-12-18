@@ -4,10 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>成绩管理教学平台</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="../css/style.css">
 </head>
 <body>
-    <!-- 导航栏 -->
     <nav class="global-nav">
         <div class="nav-content">
             <a href="#" class="nav-logo" onclick="app.renderHome()">GradeSystem</a>
@@ -18,12 +17,8 @@
         </div>
     </nav>
 
-    <!-- 主内容区 -->
-    <div id="app" class="main-container">
-        <!-- 内容由 JS 动态渲染 -->
-    </div>
+    <div id="app" class="main-container"></div>
 
-    <!-- 登录模态框 -->
     <div id="loginModal" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="app.hideLoginModal()">&times;</span>
@@ -47,11 +42,14 @@
         </div>
     </div>
 
-    <!-- 提示框 -->
     <div id="toast" class="toast">操作成功</div>
 
-    <!-- 脚本 -->
-    <script src="js/data.js"></script>
-    <script src="js/main.js"></script>
+    <script src="./js/data.js"></script>
+    <script src="./js/public.js"></script>
+    <script src="../02_student/js/student.js"></script>
+    <script src="../03_teacher/js/teacher.js"></script>
+    <script src="../04_edu_admin/js/edu_admin.js"></script>
+    <script src="../05_sys_admin/js/sys_admin.js"></script>
 </body>
 </html>
+
