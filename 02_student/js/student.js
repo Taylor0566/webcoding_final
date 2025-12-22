@@ -1,6 +1,6 @@
 // --- START OF FILE student.js ---
 
-// 1. 定义样式 (新增 .btn-active-grade 样式)
+// 1. 定义样式
 const studentStyles = `
 /* --- 核心修复：固定表格布局 (防止搜索抖动) --- */
 .data-table {
@@ -70,6 +70,52 @@ const studentStyles = `
 `;
 
 Object.assign(app, {
+    readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+            reader.readAsDataURL(file);
+        });
+    },
+
+    downloadDataUrl(dataUrl, filename) {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename || 'download';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    },
+
+    formatBytes(bytes) {
+        const n = Number(bytes) || 0;
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    },
+
+    getCourseById(courseId) {
+        return DB.get('courses').find(c => c.id === courseId);
+    },
+
+    saveCourse(updatedCourse) {
+        const courses = DB.get('courses');
+        const idx = courses.findIndex(c => c.id === updatedCourse.id);
+        if (idx !== -1) {
+            courses[idx] = updatedCourse;
+            DB.set('courses', courses);
+        }
+    },
+
+    getSubmissions() {
+        return DB.get('submissions');
+    },
+
+    setSubmissions(submissions) {
+        DB.set('submissions', submissions);
+    },
+
     // 2. 初始化入口
     renderStudentDashboard() {
         this.injectStudentStyles();
@@ -112,6 +158,39 @@ Object.assign(app, {
         navIds.forEach(id => {
             const btn = document.getElementById(id);
             if (btn) btn.className = id === activeId ? 'btn btn-primary' : 'btn btn-secondary';
+        });
+    },
+
+    // --- 新增：通用弹窗辅助函数 ---
+    showModal(title, contentHTML) {
+        const oldModal = document.getElementById('app-modal');
+        if (oldModal) oldModal.remove();
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'app-modal';
+        modalOverlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        `;
+        
+        modalOverlay.innerHTML = `
+            <div style="background:white; width:500px; max-width:90%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
+                <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
+                    <h3 style="margin:0; font-size:18px; color:#333;">${title}</h3>
+                    <button onclick="document.getElementById('app-modal').remove()" style="border:none; background:none; font-size:20px; cursor:pointer; color:#666;">&times;</button>
+                </div>
+                <div style="padding:20px; max-height:70vh; overflow-y:auto;">
+                    ${contentHTML}
+                </div>
+            </div>
+            <style>@keyframes slideDown { from {opacity:0; transform:translateY(-20px);} to {opacity:1; transform:translateY(0);} }</style>
+        `;
+        
+        document.body.appendChild(modalOverlay);
+        
+        modalOverlay.addEventListener('click', (e) => {
+            if(e.target === modalOverlay) modalOverlay.remove();
         });
     },
 
@@ -170,12 +249,199 @@ Object.assign(app, {
     },
 
     viewCourseMaterials(courseId, courseName) {
-        alert(`正在打开【${courseName}】的学习资源...`);
+        const course = this.getCourseById(courseId);
+        const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
+
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderStudentMyCourses()" style="margin-bottom:20px;">&larr; 返回我的课程</button>
+            <div class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 class="card-title">课件列表 - ${courseName}</h3>
+                    <div style="color:#666; font-size:13px;">共 ${materials.length} 份课件</div>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 45%">文件名</th>
+                            <th style="width: 15%">大小</th>
+                            <th style="width: 20%">发布时间</th>
+                            <th style="width: 20%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${materials.map(m => `
+                            <tr>
+                                <td title="${m.name || ''}">${m.name || '-'}</td>
+                                <td>${this.formatBytes(m.size)}</td>
+                                <td>${m.uploadedAt || '-'}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;"
+                                            onclick="app.downloadCourseMaterial('${courseId}', '${m.id}')">下载</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${materials.length === 0 ? `<tr><td colspan="4" style="color:#999; padding:20px;">暂无课件</td></tr>` : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        document.getElementById('studentContent').innerHTML = html;
+    },
+
+    downloadCourseMaterial(courseId, materialId) {
+        const course = this.getCourseById(courseId);
+        const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
+        const material = materials.find(m => m && m.id === materialId);
+        if (!material || !material.dataUrl) {
+            alert('课件不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(material.dataUrl, material.name || `material-${materialId}`);
     },
 
     handleHomework(courseId, courseName) {
-        const input = prompt(`请输入【${courseName}】的作业内容：`);
-        if (input) this.showToast('作业提交成功！');
+        const course = this.getCourseById(courseId);
+        const assignmentReq = (course && typeof course.assignmentReq === 'string' && course.assignmentReq.trim())
+            ? course.assignmentReq.trim()
+            : '教师暂未发布具体的作业文本说明，请以上课通知为准。';
+
+        const studentId = this.state.currentUser.id;
+        const submissions = this.getSubmissions();
+        const current = submissions.find(s => s && s.courseId === courseId && s.studentId === studentId);
+
+        const statusHTML = current
+            ? `
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:10px; border-radius:4px; margin-bottom:15px;">
+                    <strong>✅ 已提交</strong><br>
+                    文件名: ${current.fileName}<br>
+                    提交时间: ${current.uploadedAt}
+                </div>
+            `
+            : `
+                <div style="background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px; border-radius:4px; margin-bottom:15px;">
+                    <strong>⚠️ 未提交</strong><br>请尽快完成作业并上传。
+                </div>
+            `;
+
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderStudentMyCourses()" style="margin-bottom:20px;">&larr; 返回我的课程</button>
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">作业提交 - ${courseName}</h3></div>
+
+                ${statusHTML}
+
+                <div style="margin-bottom:15px;">
+                    <div style="font-weight:600; margin-bottom:6px;">� 作业要求</div>
+                    <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
+                        ${assignmentReq.replace(/\n/g, '<br>')}
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
+                    <input type="file" id="studentHomeworkFile" class="form-input" style="max-width:420px; padding: 8px 12px;">
+                    <button class="btn btn-primary" onclick="app.submitStudentHomework('${courseId}')">上传作业</button>
+                    <div style="color:#666; font-size:13px;">建议文件不超过 2MB</div>
+                </div>
+
+                <div style="color:#111; font-weight:600; margin-bottom:10px;">已提交记录</div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50%">文件名</th>
+                            <th style="width: 15%">大小</th>
+                            <th style="width: 20%">提交时间</th>
+                            <th style="width: 15%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${current ? `
+                            <tr>
+                                <td title="${current.fileName || ''}">${current.fileName || '-'}</td>
+                                <td>${this.formatBytes(current.fileSize)}</td>
+                                <td>${current.uploadedAt || '-'}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;"
+                                            onclick="app.downloadStudentHomework('${current.id}')">下载</button>
+                                        <button class="btn btn-sm" style="background-color:#ffebee; color:#b71c1c;"
+                                            onclick="app.removeStudentHomework('${current.id}', '${courseId}', '${courseName}')">删除</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ` : `<tr><td colspan="4" style="color:#999; padding:20px;">暂无已提交作业</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        document.getElementById('studentContent').innerHTML = html;
+    },
+
+    async submitStudentHomework(courseId) {
+        const input = document.getElementById('studentHomeworkFile');
+        if (!input || !input.files || input.files.length === 0) {
+            alert('请选择要上传的作业文件');
+            return;
+        }
+
+        const file = input.files[0];
+        if (file.size > 2 * 1024 * 1024) {
+            alert('文件过大（超过 2MB），请更换较小文件');
+            return;
+        }
+
+        let dataUrl = '';
+        try {
+            dataUrl = await this.readFileAsDataUrl(file);
+        } catch (e) {
+            alert(e && e.message ? e.message : '读取文件失败');
+            return;
+        }
+
+        const studentId = this.state.currentUser.id;
+        const submissions = this.getSubmissions();
+        const now = new Date().toLocaleString();
+        const idx = submissions.findIndex(s => s && s.courseId === courseId && s.studentId === studentId);
+
+        const record = {
+            id: idx !== -1 ? submissions[idx].id : `SUB_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            courseId,
+            studentId,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            dataUrl,
+            uploadedAt: now
+        };
+
+        if (idx !== -1) submissions[idx] = record;
+        else submissions.push(record);
+
+        this.setSubmissions(submissions);
+        this.showToast('作业上传成功');
+
+        const c = this.getCourseById(courseId);
+        this.handleHomework(courseId, c ? c.name : courseId);
+    },
+
+    downloadStudentHomework(submissionId) {
+        const submissions = this.getSubmissions();
+        const record = submissions.find(s => s && s.id === submissionId && s.studentId === this.state.currentUser.id);
+        if (!record || !record.dataUrl) {
+            alert('作业不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(record.dataUrl, record.fileName || `homework-${submissionId}`);
+    },
+
+    removeStudentHomework(submissionId, courseId, courseName) {
+        if (!confirm('确定删除已提交的作业吗？')) return;
+        const submissions = this.getSubmissions();
+        const next = submissions.filter(s => !(s && s.id === submissionId && s.studentId === this.state.currentUser.id));
+        this.setSubmissions(next);
+        this.showToast('已删除作业');
+        this.handleHomework(courseId, courseName);
     },
 
     // =========================================
@@ -274,7 +540,7 @@ Object.assign(app, {
     },
 
     // =========================================
-    // 模块 3：成绩单 (添加了按钮高亮逻辑)
+    // 模块 3：成绩单
     // =========================================
     calculateGPA(grade) {
         if (!grade) return 0.0;
@@ -342,7 +608,6 @@ Object.assign(app, {
                                 <td style="font-weight:bold; color:#333;">${row.grade}</td>
                                 <td>${row.gpa.toFixed(1)}</td>
                                 <td>
-                                    <!-- 添加 id 和 class 方便 JS 选择 -->
                                     <button id="btn-grade-${row.id}" class="btn btn-sm grade-action-btn" 
                                         style="background-color:#f3f4f6; border:1px solid #ddd; color:#374151;"
                                         onclick="app.viewGradeDetails('${row.id}', '${row.name}')">
@@ -360,24 +625,20 @@ Object.assign(app, {
     },
 
     viewGradeDetails(courseId, courseName) {
-        // --- 1. 高亮逻辑 ---
-        // 移除所有按钮的高亮类，恢复默认样式
+        // 高亮逻辑
         document.querySelectorAll('.grade-action-btn').forEach(btn => {
             btn.classList.remove('btn-active-grade');
-            btn.style.backgroundColor = '#f3f4f6'; // 恢复默认灰色
+            btn.style.backgroundColor = '#f3f4f6';
             btn.style.color = '#374151';
             btn.style.borderColor = '#ddd';
         });
 
-        // 激活当前按钮
         const activeBtn = document.getElementById(`btn-grade-${courseId}`);
         if (activeBtn) {
             activeBtn.classList.add('btn-active-grade');
-            // 必须清除内联样式，才能让 CSS class 生效 (或者 CSS 中使用 !important)
-            // 这里我们已经 CSS 加了 !important，所以直接添加 class 即可
         }
 
-        // --- 2. 显示详情 ---
+        // 显示详情
         const enrollment = DB.get('enrollments').find(e => e.studentId === this.state.currentUser.id && e.courseId === courseId);
         if (!enrollment) return;
         const d = enrollment.details;
@@ -392,7 +653,6 @@ Object.assign(app, {
                 </div>
             </div>`;
         
-        // 简单的淡入动画
         const style = document.createElement('style');
         style.innerHTML = `@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }`;
         document.head.appendChild(style);

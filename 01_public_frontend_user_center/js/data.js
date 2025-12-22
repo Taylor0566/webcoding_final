@@ -66,6 +66,126 @@ const Security = {
 
 const pad3 = (n) => String(n).padStart(3, '0');
 
+const TEACHER_POOL = [
+    { teacherId: 'T001', teacherName: '王老师' },
+    { teacherId: 'T002', teacherName: '赵老师' },
+    { teacherId: 'T003', teacherName: '李老师' },
+    { teacherId: 'T004', teacherName: '周老师' },
+    { teacherId: 'T005', teacherName: '陈老师' },
+    { teacherId: 'T006', teacherName: '刘老师' },
+    { teacherId: 'T007', teacherName: '杨老师' },
+    { teacherId: 'T008', teacherName: '黄老师' },
+    { teacherId: 'T009', teacherName: '吴老师' },
+    { teacherId: 'T010', teacherName: '徐老师' },
+    { teacherId: 'T011', teacherName: '孙老师' },
+    { teacherId: 'T012', teacherName: '胡老师' },
+    { teacherId: 'T013', teacherName: '朱老师' },
+    { teacherId: 'T014', teacherName: '高老师' },
+    { teacherId: 'T015', teacherName: '林老师' },
+    { teacherId: 'T016', teacherName: '何老师' },
+    { teacherId: 'T017', teacherName: '郭老师' },
+    { teacherId: 'T018', teacherName: '马老师' },
+    { teacherId: 'T019', teacherName: '罗老师' },
+    { teacherId: 'T020', teacherName: '梁老师' }
+];
+
+const createLegacyUser = (user) => {
+    const id = user.id;
+    return {
+        ...user,
+        passwordHash: user.passwordHash || Security.legacyHash('password', id),
+        salt: user.salt || id,
+        loginAttempts: user.loginAttempts || 0,
+        lockUntil: user.lockUntil || 0
+    };
+};
+
+const mulberry32 = (seed) => {
+    let t = seed >>> 0;
+    return () => {
+        t += 0x6D2B79F5;
+        let x = Math.imul(t ^ (t >>> 15), 1 | t);
+        x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+};
+
+const hashString = (s) => {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+};
+
+const generateExtraUsers = (studentCount = 80, teacherPool = TEACHER_POOL) => {
+    const users = [];
+
+    for (const t of teacherPool) {
+        users.push(createLegacyUser({
+            id: t.teacherId,
+            name: t.teacherName,
+            role: 'teacher',
+            email: `${t.teacherId.toLowerCase()}@szu.edu.cn`
+        }));
+    }
+
+    const surnames = ['张', '李', '王', '赵', '刘', '陈', '杨', '黄', '周', '吴', '徐', '孙', '胡', '朱', '高', '林', '何', '郭', '马', '罗', '梁', '宋', '郑', '谢', '唐'];
+    const given = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '子涵', '雨桐', '浩然', '梓轩', '欣怡', '语嫣', '明轩', '嘉怡', '思远', '若曦'];
+
+    for (let i = 1; i <= studentCount; i++) {
+        const id = `S${pad3(i)}`;
+        const name = i <= 2
+            ? (i === 1 ? '张三' : '李四')
+            : `${surnames[(i - 1) % surnames.length]}${given[(i - 1) % given.length]}`;
+        const cls = `2021级计算机${((i - 1) % 4) + 1}班`;
+        users.push(createLegacyUser({
+            id,
+            name,
+            role: 'student',
+            email: `s${pad3(i)}@szu.edu.cn`,
+            class: cls
+        }));
+    }
+
+    users.push(createLegacyUser({ id: 'TA001', name: '教学秘书', role: 'edu_admin', email: 'sec@szu.edu.cn' }));
+    users.push(createLegacyUser({ id: 'SA001', name: '系统管理员', role: 'sys_admin', email: 'admin@szu.edu.cn' }));
+
+    return users;
+};
+
+const generateMockEnrollments = (courses, studentIds) => {
+    const enrollments = [];
+    for (const c of courses) {
+        const rand = mulberry32(hashString(String(c.id || '')));
+        const want = Math.max(3, Math.min(10, 3 + Math.floor(rand() * 8)));
+        const picked = new Set();
+        let guard = 0;
+        while (picked.size < want && guard < want * 50) {
+            guard++;
+            const sid = studentIds[Math.floor(rand() * studentIds.length)];
+            if (!sid) continue;
+            picked.add(sid);
+        }
+
+        for (const sid of picked) {
+            const graded = rand() < 0.45;
+            const hw = graded ? Math.round(60 + rand() * 40) : null;
+            const mid = graded ? Math.round(60 + rand() * 40) : null;
+            const fin = graded ? Math.round(60 + rand() * 40) : null;
+            const total = graded ? Math.round(hw * 0.3 + mid * 0.3 + fin * 0.4) : null;
+            enrollments.push({
+                studentId: sid,
+                courseId: c.id,
+                grade: total,
+                details: { homework: hw, midterm: mid, final: fin }
+            });
+        }
+    }
+    return enrollments;
+};
+
 const generateMockCourses = (count) => {
     const depts = [
         '计算机与软件学院',
@@ -250,9 +370,7 @@ const generateMockCourses = (count) => {
 
     const courses = [];
     for (let i = 1; i <= count; i++) {
-        const teacher = i % 2 === 1
-            ? { teacherId: 'T001', teacherName: '王老师' }
-            : { teacherId: 'T002', teacherName: '赵老师' };
+        const teacher = TEACHER_POOL[(i - 1) % TEACHER_POOL.length];
 
         const baseName = courseNames[i - 1] || `通识选修课${pad3(i)}`;
         const dept = depts[(i - 1) % depts.length];
@@ -264,7 +382,8 @@ const generateMockCourses = (count) => {
             id: `C${pad3(i)}`,
             name: baseName,
             credit: 2 + ((i - 1) % 4),
-            ...teacher,
+            teacherId: teacher.teacherId,
+            teacherName: teacher.teacherName,
             dept,
             desc,
             status: 'published',
@@ -314,20 +433,13 @@ const generateMockCourses = (count) => {
 };
 
 const MockData = {
-    users: [
-        { id: 'S001', name: '张三', role: 'student', passwordHash: Security.legacyHash('password', 'S001'), salt: 'S001', email: 'zhangsan@szu.edu.cn', class: '2021级计算机1班', loginAttempts: 0, lockUntil: 0 },
-        { id: 'S002', name: '李四', role: 'student', passwordHash: Security.legacyHash('password', 'S002'), salt: 'S002', email: 'lisi@szu.edu.cn', class: '2021级计算机1班', loginAttempts: 0, lockUntil: 0 },
-        { id: 'T001', name: '王老师', role: 'teacher', passwordHash: Security.legacyHash('password', 'T001'), salt: 'T001', email: 'wang@szu.edu.cn', loginAttempts: 0, lockUntil: 0 },
-        { id: 'T002', name: '赵老师', role: 'teacher', passwordHash: Security.legacyHash('password', 'T002'), salt: 'T002', email: 'zhao@szu.edu.cn', loginAttempts: 0, lockUntil: 0 },
-        { id: 'TA001', name: '教学秘书', role: 'edu_admin', passwordHash: Security.legacyHash('password', 'TA001'), salt: 'TA001', email: 'sec@szu.edu.cn', loginAttempts: 0, lockUntil: 0 },
-        { id: 'SA001', name: '系统管理员', role: 'sys_admin', passwordHash: Security.legacyHash('password', 'SA001'), salt: 'SA001', email: 'admin@szu.edu.cn', loginAttempts: 0, lockUntil: 0 }
-    ],
+    users: generateExtraUsers(120, TEACHER_POOL),
     courses: generateMockCourses(200),
-    enrollments: [
-        { studentId: 'S001', courseId: 'C001', grade: 88, details: { homework: 90, midterm: 85, final: 88 } },
-        { studentId: 'S001', courseId: 'C002', grade: null, details: { homework: null, midterm: null, final: null } },
-        { studentId: 'S002', courseId: 'C001', grade: 75, details: { homework: 80, midterm: 70, final: 75 } }
-    ],
+    enrollments: (() => {
+        const students = generateExtraUsers(120, TEACHER_POOL).filter(u => u.role === 'student').map(u => u.id);
+        const courses = generateMockCourses(200);
+        return generateMockEnrollments(courses, students);
+    })(),
     logs: [
         { id: 1, user: 'SA001', action: 'System Backup', time: '2023-10-01 12:00:00' },
         { id: 2, user: 'TA001', action: 'Create Course C001', time: '2023-09-01 09:00:00' }
@@ -336,9 +448,29 @@ const MockData = {
 
 const DB = {
     init() {
-        if (!localStorage.getItem('grade_users')) {
+        const storedUsers = localStorage.getItem('grade_users');
+        if (!storedUsers) {
             localStorage.setItem('grade_users', JSON.stringify(MockData.users));
+        } else {
+            try {
+                const parsed = JSON.parse(storedUsers) || [];
+                if (!Array.isArray(parsed)) {
+                    localStorage.setItem('grade_users', JSON.stringify(MockData.users));
+                } else {
+                    const existing = new Set(parsed.map(u => u && u.id).filter(Boolean));
+                    const merged = parsed.slice();
+                    for (const u of MockData.users) {
+                        if (!existing.has(u.id)) merged.push(u);
+                    }
+                    if (merged.length !== parsed.length) {
+                        localStorage.setItem('grade_users', JSON.stringify(merged));
+                    }
+                }
+            } catch (e) {
+                localStorage.setItem('grade_users', JSON.stringify(MockData.users));
+            }
         }
+
         const storedCourses = localStorage.getItem('grade_courses');
         if (!storedCourses) {
             localStorage.setItem('grade_courses', JSON.stringify(MockData.courses));
@@ -386,6 +518,45 @@ const DB = {
                     }
                 }
 
+                const usersNow = (() => {
+                    try {
+                        const u = JSON.parse(localStorage.getItem('grade_users')) || [];
+                        return Array.isArray(u) ? u : [];
+                    } catch (e) {
+                        return [];
+                    }
+                })();
+                const teacherUsers = usersNow.filter(u => u && u.role === 'teacher' && u.id);
+                const teacherIdSet = new Set(teacherUsers.map(t => t.id));
+                if (teacherUsers.length > 2) {
+                    const courseTeacherIds = new Set(updated.map(c => c && c.teacherId).filter(Boolean));
+                    const shouldRebind = courseTeacherIds.size <= 2 && courseTeacherIds.size < teacherUsers.length;
+                    const rebinding = shouldRebind
+                        ? teacherUsers.map(t => ({ teacherId: t.id, teacherName: t.name }))
+                        : null;
+                    let teacherUpdated = false;
+                    const nextCourses = updated.map((c, idx) => {
+                        if (!c) return c;
+                        if (rebinding) {
+                            const t = rebinding[idx % rebinding.length];
+                            if (c.teacherId !== t.teacherId || c.teacherName !== t.teacherName) {
+                                teacherUpdated = true;
+                                return { ...c, teacherId: t.teacherId, teacherName: t.teacherName };
+                            }
+                            return c;
+                        }
+                        if (!teacherIdSet.has(c.teacherId)) {
+                            const t = teacherUsers[idx % teacherUsers.length];
+                            teacherUpdated = true;
+                            return { ...c, teacherId: t.id, teacherName: t.name };
+                        }
+                        return c;
+                    });
+                    if (teacherUpdated) {
+                        updated = nextCourses;
+                    }
+                }
+
                 if (updated !== parsed) {
                     localStorage.setItem('grade_courses', JSON.stringify(updated));
                 }
@@ -393,9 +564,64 @@ const DB = {
                 localStorage.setItem('grade_courses', JSON.stringify(MockData.courses));
             }
         }
-        if (!localStorage.getItem('grade_enrollments')) {
+
+        const storedEnrollments = localStorage.getItem('grade_enrollments');
+        if (!storedEnrollments) {
             localStorage.setItem('grade_enrollments', JSON.stringify(MockData.enrollments));
+        } else {
+            try {
+                const parsed = JSON.parse(storedEnrollments) || [];
+                const current = Array.isArray(parsed) ? parsed : [];
+                const courses = this.get('courses');
+                const students = this.get('users').filter(u => u && u.role === 'student' && u.id).map(u => u.id);
+                const byCourse = new Map();
+                for (const e of current) {
+                    if (!e || !e.courseId || !e.studentId) continue;
+                    let set = byCourse.get(e.courseId);
+                    if (!set) {
+                        set = new Set();
+                        byCourse.set(e.courseId, set);
+                    }
+                    set.add(e.studentId);
+                }
+
+                const additions = [];
+                for (const c of courses) {
+                    const cid = c && c.id;
+                    if (!cid) continue;
+                    const set = byCourse.get(cid) || new Set();
+                    const need = Math.max(0, 5 - set.size);
+                    if (need <= 0) continue;
+                    const rand = mulberry32(hashString(String(cid)));
+                    let guard = 0;
+                    while (additions.length < 5000 && set.size < 5 && guard < 200) {
+                        guard++;
+                        const sid = students[Math.floor(rand() * students.length)];
+                        if (!sid || set.has(sid)) continue;
+                        set.add(sid);
+                        const graded = rand() < 0.4;
+                        const hw = graded ? Math.round(60 + rand() * 40) : null;
+                        const mid = graded ? Math.round(60 + rand() * 40) : null;
+                        const fin = graded ? Math.round(60 + rand() * 40) : null;
+                        const total = graded ? Math.round(hw * 0.3 + mid * 0.3 + fin * 0.4) : null;
+                        additions.push({
+                            studentId: sid,
+                            courseId: cid,
+                            grade: total,
+                            details: { homework: hw, midterm: mid, final: fin }
+                        });
+                    }
+                    byCourse.set(cid, set);
+                }
+
+                if (additions.length > 0) {
+                    localStorage.setItem('grade_enrollments', JSON.stringify(current.concat(additions)));
+                }
+            } catch (e) {
+                localStorage.setItem('grade_enrollments', JSON.stringify(MockData.enrollments));
+            }
         }
+
         if (!localStorage.getItem('grade_logs')) {
             localStorage.setItem('grade_logs', JSON.stringify(MockData.logs));
         }
@@ -461,4 +687,3 @@ const DB = {
 };
 
 DB.init();
-
