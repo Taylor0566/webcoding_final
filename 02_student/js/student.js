@@ -67,6 +67,21 @@ const studentStyles = `
     outline: 2px solid #0066cc;
     border-radius: 4px;
 }
+
+/* 学期选择下拉框样式 */
+.semester-select {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    outline: none;
+}
+.semester-select:focus {
+    border-color: #0066cc;
+}
 `;
 
 Object.assign(app, {
@@ -175,12 +190,12 @@ Object.assign(app, {
         `;
         
         modalOverlay.innerHTML = `
-            <div style="background:white; width:500px; max-width:90%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
+            <div style="background:white; width:600px; max-width:95%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
                 <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
                     <h3 style="margin:0; font-size:18px; color:#333;">${title}</h3>
                     <button onclick="document.getElementById('app-modal').remove()" style="border:none; background:none; font-size:20px; cursor:pointer; color:#666;">&times;</button>
                 </div>
-                <div style="padding:20px; max-height:70vh; overflow-y:auto;">
+                <div style="padding:20px; max-height:80vh; overflow-y:auto;">
                     ${contentHTML}
                 </div>
             </div>
@@ -333,7 +348,7 @@ Object.assign(app, {
                 ${statusHTML}
 
                 <div style="margin-bottom:15px;">
-                    <div style="font-weight:600; margin-bottom:6px;">� 作业要求</div>
+                    <div style="font-weight:600; margin-bottom:6px;"> 作业要求</div>
                     <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
                         ${assignmentReq.replace(/\n/g, '<br>')}
                     </div>
@@ -540,7 +555,7 @@ Object.assign(app, {
     },
 
     // =========================================
-    // 模块 3：成绩单
+    // 模块 3：成绩单 (含全校成绩统计与趋势图)
     // =========================================
     calculateGPA(grade) {
         if (!grade) return 0.0;
@@ -557,35 +572,97 @@ Object.assign(app, {
         return 0.0;
     },
 
-    renderStudentGrades() {
+    renderStudentGrades(selectedSemester = null) {
         localStorage.setItem('student_last_tab', 'grades');
         this.updateStudentNav('nav-grades');
 
         const enrollments = DB.get('enrollments').filter(e => e.studentId === this.state.currentUser.id && e.grade !== null);
         const courses = DB.get('courses');
 
-        let totalCredits = 0;
-        let totalPoints = 0;
-        
-        const gradeRows = enrollments.map(e => {
+        // 1. 整理所有成绩数据
+        const allGradeData = enrollments.map(e => {
             const c = courses.find(course => course.id === e.courseId);
-            const gpa = this.calculateGPA(e.grade);
-            const credit = parseFloat(c.credit);
-            
-            totalCredits += credit;
-            totalPoints += gpa * credit;
-
-            return { ...c, grade: e.grade, gpa: gpa, details: e.details };
+            const semester = (c && c.semester) ? c.semester : '2024秋季';
+            return { 
+                ...c, 
+                grade: e.grade, 
+                details: e.details,
+                semester: semester
+            };
         });
 
-        const avgGPA = totalCredits > 0 ? (totalPoints / totalCredits).toFixed(2) : "0.00";
+        // 2. 计算所有学期的汇总数据 (总学分、总平均绩点)
+        let allSemCredits = 0;
+        let allSemPoints = 0;
+        allGradeData.forEach(d => {
+            const gpa = this.calculateGPA(d.grade);
+            const credit = parseFloat(d.credit || 0);
+            allSemCredits += credit;
+            allSemPoints += gpa * credit;
+        });
+        const allAvgGPA = allSemCredits > 0 ? (allSemPoints / allSemCredits).toFixed(2) : "0.00";
+
+        // 3. 提取学期列表并处理当前学期筛选
+        const uniqueSemesters = [...new Set(allGradeData.map(d => d.semester))].sort().reverse();
+        
+        if (!selectedSemester && uniqueSemesters.length > 0) {
+            selectedSemester = uniqueSemesters[0];
+        } else if (!selectedSemester) {
+            selectedSemester = '2024秋季';
+        }
+
+        const filteredData = allGradeData.filter(d => d.semester === selectedSemester);
+
+        // 4. 计算当前选中学期的统计数据
+        let currentSemCredits = 0;
+        let currentSemPoints = 0;
+        
+        const gradeRows = filteredData.map(row => {
+            const gpa = this.calculateGPA(row.grade);
+            const credit = parseFloat(row.credit || 0);
+            
+            currentSemCredits += credit;
+            currentSemPoints += gpa * credit;
+
+            return { ...row, gpa: gpa };
+        });
+
+        const currentSemAvgGPA = currentSemCredits > 0 ? (currentSemPoints / currentSemCredits).toFixed(2) : "0.00";
 
         const html = `
+            <!-- 总览卡片 -->
+            <div class="card" style="margin-bottom:20px; background: linear-gradient(to right, #e3f2fd, #f8fafc); border-left: 5px solid #0066cc;">
+                <div style="padding:15px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0 0 5px 0; color:#0d47a1;">🎓 学业总进度</h3>
+                        <div style="color:#555; font-size:14px;">在校期间所有课程统计</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:14px; color:#666; margin-right:15px;">累计修读学分: <strong style="font-size:18px; color:#333;">${allSemCredits}</strong></span>
+                        <span style="font-size:14px; color:#666;">总平均绩点(GPA): <strong style="font-size:18px; color:#e65100;">${allAvgGPA}</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 学期成绩列表 -->
             <div class="card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <h3 class="card-title">学期成绩总览</h3>
-                    <div style="background:#f0f9ff; padding:8px 15px; border-radius:4px; color:#0288d1; font-weight:bold;">
-                        总学分: ${totalCredits} &nbsp;|&nbsp; 平均绩点: ${avgGPA}
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <h3 class="card-title" style="margin:0;">学期成绩单</h3>
+                        <select class="semester-select" onchange="app.renderStudentGrades(this.value)">
+                            ${uniqueSemesters.map(sem => 
+                                `<option value="${sem}" ${sem === selectedSemester ? 'selected' : ''}>${sem}</option>`
+                            ).join('')}
+                            ${uniqueSemesters.length === 0 ? `<option value="2024秋季">2024秋季</option>` : ''}
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                         <button class="btn btn-primary" onclick="app.showGradeTrendChart()" style="display:flex; align-items:center; gap:5px;">
+                            📊 查看成绩趋势图
+                        </button>
+                        <div style="background:#f9fafb; padding:6px 12px; border-radius:4px; font-size:13px; color:#666; border:1px solid #eee;">
+                            本学期绩点: <strong style="color:#0066cc;">${currentSemAvgGPA}</strong>
+                        </div>
                     </div>
                 </div>
                 <table class="data-table">
@@ -600,9 +677,9 @@ Object.assign(app, {
                         </tr>
                     </thead>
                     <tbody>
-                        ${gradeRows.map(row => `
+                        ${gradeRows.length > 0 ? gradeRows.map(row => `
                             <tr>
-                                <td>2024秋季</td>
+                                <td>${row.semester}</td>
                                 <td>${row.name}</td>
                                 <td>${row.credit}</td>
                                 <td style="font-weight:bold; color:#333;">${row.grade}</td>
@@ -615,13 +692,108 @@ Object.assign(app, {
                                     </button>
                                 </td>
                             </tr>
-                        `).join('')}
+                        `).join('') : '<tr><td colspan="6" style="color:#999; padding:20px;">该学期暂无成绩记录</td></tr>'}
                     </tbody>
                 </table>
             </div>
             <div id="gradeDetailsArea" style="margin-top:20px;"></div>
         `;
         document.getElementById('studentContent').innerHTML = html;
+    },
+
+    // --- 新增：展示成绩趋势图 (SVG) ---
+    showGradeTrendChart() {
+        const enrollments = DB.get('enrollments').filter(e => e.studentId === this.state.currentUser.id && e.grade !== null);
+        const courses = DB.get('courses');
+
+        // 1. 聚合每学期数据
+        const semStats = {};
+        enrollments.forEach(e => {
+            const c = courses.find(course => course.id === e.courseId);
+            const sem = (c && c.semester) ? c.semester : '未知学期';
+            const gpa = this.calculateGPA(e.grade);
+            const credit = parseFloat((c && c.credit) || 0);
+
+            if (!semStats[sem]) semStats[sem] = { totalPoints: 0, totalCredits: 0 };
+            semStats[sem].totalPoints += gpa * credit;
+            semStats[sem].totalCredits += credit;
+        });
+
+        // 2. 转换为数组并排序 (从早到晚)
+        const sortedData = Object.keys(semStats).map(sem => {
+            const d = semStats[sem];
+            const avg = d.totalCredits > 0 ? (d.totalPoints / d.totalCredits) : 0;
+            return { semester: sem, gpa: avg };
+        }).sort((a, b) => {
+            // 解析年份 "2023秋季" -> 2023
+            const yearA = parseInt(a.semester) || 0;
+            const yearB = parseInt(b.semester) || 0;
+            if (yearA !== yearB) return yearA - yearB;
+            // 同一年，春季在秋季前
+            const isSpringA = a.semester.includes('春');
+            const isSpringB = b.semester.includes('春');
+            if (isSpringA && !isSpringB) return -1;
+            if (!isSpringA && isSpringB) return 1;
+            return 0;
+        });
+
+        if (sortedData.length === 0) {
+            alert('暂无成绩数据，无法生成图表');
+            return;
+        }
+
+        // 3. 生成 SVG 图表
+        const width = 550;
+        const height = 300;
+        const padding = 40;
+        const chartW = width - padding * 2;
+        const chartH = height - padding * 2;
+
+        // Y轴比例：最大绩点4.0，留点头部空间设为 4.5
+        const maxGPA = 4.5;
+        const getY = (gpa) => height - padding - (gpa / maxGPA) * chartH;
+        
+        // X轴比例
+        const getX = (index) => padding + (index * (chartW / (Math.max(1, sortedData.length - 1))));
+
+        // 构建路径点
+        let pointsStr = '';
+        const circles = sortedData.map((d, i) => {
+            const x = sortedData.length === 1 ? width / 2 : getX(i); // 只有一个点时居中
+            const y = getY(d.gpa);
+            if (i === 0) pointsStr += `${x},${y}`;
+            else pointsStr += ` ${x},${y}`;
+            
+            return `<circle cx="${x}" cy="${y}" r="5" fill="#0066cc" stroke="white" stroke-width="2">
+                        <title>${d.semester}: ${d.gpa.toFixed(2)}</title>
+                    </circle>
+                    <text x="${x}" y="${y - 10}" font-size="12" text-anchor="middle" fill="#0066cc" font-weight="bold">${d.gpa.toFixed(2)}</text>
+                    <text x="${x}" y="${height - padding + 20}" font-size="12" text-anchor="middle" fill="#555">${d.semester}</text>`;
+        }).join('');
+
+        const svgContent = `
+            <div style="text-align:center;">
+                <svg width="${width}" height="${height}" style="background:white; border-radius:4px;">
+                    <!-- 坐标轴 -->
+                    <line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#ddd" stroke-width="1" />
+                    <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#ddd" stroke-width="1" />
+                    
+                    <!-- Y轴刻度 -->
+                    <text x="${padding - 10}" y="${getY(4.0)}" font-size="10" text-anchor="end" fill="#999">4.0</text>
+                    <text x="${padding - 10}" y="${getY(2.0)}" font-size="10" text-anchor="end" fill="#999">2.0</text>
+                    <text x="${padding - 10}" y="${height - padding}" font-size="10" text-anchor="end" fill="#999">0</text>
+                    
+                    <!-- 折线 -->
+                    <polyline points="${pointsStr}" fill="none" stroke="#0066cc" stroke-width="2" />
+                    
+                    <!-- 数据点和文字 -->
+                    ${circles}
+                </svg>
+                <div style="margin-top:10px; color:#666; font-size:12px;">X轴：学期 (时间顺序) / Y轴：平均绩点</div>
+            </div>
+        `;
+
+        this.showModal('📈 成绩变化趋势 (从早到晚)', svgContent);
     },
 
     viewGradeDetails(courseId, courseName) {

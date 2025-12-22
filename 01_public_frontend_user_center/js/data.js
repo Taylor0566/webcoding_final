@@ -345,6 +345,9 @@ const generateMockCourses = (count) => {
     const weekdays = ['周一', '周二', '周三', '周四', '周五'];
     const sessions = ['1-2节', '3-4节', '5-6节', '7-8节', '9-10节'];
     const buildings = ['N', 'S', 'H', 'B', 'C', 'D'];
+    
+    // --- 新增：学期池 ---
+    const semesters = ['2024秋季', '2024春季', '2023秋季', '2023春季'];
 
     const courseNames = (() => {
         const candidates = [];
@@ -377,6 +380,9 @@ const generateMockCourses = (count) => {
         const desc = `${baseName}：${descTemplates[(i - 1) % descTemplates.length]}`;
         const schedule = `${weekdays[(i - 1) % weekdays.length]} ${sessions[(i - 1) % sessions.length]}`;
         const classroom = `${buildings[(i - 1) % buildings.length]}${String(101 + ((i - 1) % 40)).padStart(3, '0')}`;
+        
+        // --- 新增：分配学期 ---
+        const semester = semesters[(i - 1) % semesters.length];
 
         courses.push({
             id: `C${pad3(i)}`,
@@ -388,10 +394,12 @@ const generateMockCourses = (count) => {
             desc,
             status: 'published',
             schedule,
-            classroom
+            classroom,
+            semester // 注入学期字段
         });
     }
 
+    // 更新固定的课程数据，加入学期
     courses[0] = {
         id: 'C001',
         name: 'Web前端开发',
@@ -402,7 +410,8 @@ const generateMockCourses = (count) => {
         desc: '本课程介绍HTML5, CSS3, JS基础。',
         status: 'published',
         schedule: '周一 3-4节',
-        classroom: 'N201'
+        classroom: 'N201',
+        semester: '2024秋季'
     };
     courses[1] = {
         id: 'C002',
@@ -414,7 +423,8 @@ const generateMockCourses = (count) => {
         desc: '计算机专业核心课程。',
         status: 'published',
         schedule: '周二 1-2节',
-        classroom: 'S304'
+        classroom: 'S304',
+        semester: '2024春季'
     };
     courses[2] = {
         id: 'C003',
@@ -426,7 +436,8 @@ const generateMockCourses = (count) => {
         desc: '理工科基础课程。',
         status: 'published',
         schedule: '周三 3-4节',
-        classroom: 'H101'
+        classroom: 'H101',
+        semester: '2023秋季'
     };
 
     return courses;
@@ -476,10 +487,20 @@ const DB = {
             localStorage.setItem('grade_courses', JSON.stringify(MockData.courses));
         } else {
             try {
-                const parsed = JSON.parse(storedCourses) || [];
+                let parsed = JSON.parse(storedCourses) || [];
                 if (!Array.isArray(parsed)) {
                     localStorage.setItem('grade_courses', JSON.stringify(MockData.courses));
                     return;
+                }
+
+                // --- 新增：检测并修复旧数据缺失 'semester' 字段的情况 ---
+                const semesters = ['2024秋季', '2024春季', '2023秋季', '2023春季'];
+                const needsSemester = parsed.some(c => !c.semester);
+                if (needsSemester) {
+                    parsed = parsed.map((c, idx) => ({
+                        ...c,
+                        semester: c.semester || semesters[idx % semesters.length]
+                    }));
                 }
 
                 const mockById = new Map(MockData.courses.map(c => [c.id, c]));
@@ -501,7 +522,8 @@ const DB = {
                             desc: m.desc,
                             status: m.status,
                             schedule: m.schedule,
-                            classroom: m.classroom
+                            classroom: m.classroom,
+                            semester: m.semester // 同步 Mock 数据的学期
                         };
                     });
                 }
@@ -557,7 +579,7 @@ const DB = {
                     }
                 }
 
-                if (updated !== parsed) {
+                if (updated !== parsed || needsSemester) {
                     localStorage.setItem('grade_courses', JSON.stringify(updated));
                 }
             } catch (e) {
