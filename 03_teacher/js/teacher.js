@@ -1,4 +1,33 @@
 Object.assign(app, {
+    ensureTeacherFileUtils() {
+        if (typeof this.readFileAsDataUrl !== 'function') {
+            this.readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+                reader.readAsDataURL(file);
+            });
+        }
+        if (typeof this.downloadDataUrl !== 'function') {
+            this.downloadDataUrl = (dataUrl, filename) => {
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = filename || 'download';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            };
+        }
+        if (typeof this.formatBytes !== 'function') {
+            this.formatBytes = (bytes) => {
+                const n = Number(bytes) || 0;
+                if (n < 1024) return `${n} B`;
+                if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+                return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+            };
+        }
+    },
+
     ensureTeacherCourseViewState() {
         if (!this.state.teacherCourseView) {
             this.state.teacherCourseView = {
@@ -12,6 +41,7 @@ Object.assign(app, {
 
     renderTeacherDashboard() {
         this.ensureTeacherCourseViewState();
+        this.ensureTeacherFileUtils();
         const container = document.getElementById('app');
         container.innerHTML = `
             <h2 style="margin-bottom:20px;">教师工作台</h2>
@@ -101,6 +131,8 @@ Object.assign(app, {
                                     <td>${count}</td>
                                     <td>
                                         <button class="btn btn-secondary" onclick="app.renderTeacherGradeEntry('${c.id}')">录入成绩</button>
+                                        <button class="btn btn-secondary" onclick="app.renderTeacherMaterials('${c.id}')">课件</button>
+                                        <button class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${c.id}')">作业</button>
                                         <button class="btn btn-secondary" onclick="app.renderTeacherEditCourse('${c.id}')">管理</button>
                                     </td>
                                 </tr>
@@ -154,6 +186,175 @@ Object.assign(app, {
             </div>
         `;
         document.getElementById('teacherContent').innerHTML = html;
+    },
+
+    renderTeacherMaterials(courseId) {
+        this.ensureTeacherFileUtils();
+        const course = DB.get('courses').find(c => c.id === courseId);
+        if (!course) {
+            alert('课程不存在');
+            return;
+        }
+
+        const materials = Array.isArray(course.materials) ? course.materials : [];
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回课程列表</button>
+            <div class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 class="card-title">课件管理 - ${course.name}</h3>
+                    <div style="color:#666; font-size:13px;">共 ${materials.length} 份</div>
+                </div>
+
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
+                    <input type="file" id="teacherMaterialFile" class="form-input" style="max-width:420px; padding: 8px 12px;">
+                    <button class="btn btn-primary" onclick="app.uploadTeacherMaterial('${courseId}')">发布课件</button>
+                    <div style="color:#666; font-size:13px;">建议文件不超过 2MB</div>
+                </div>
+
+                <table class="data-table">
+                    <thead><tr><th style="width:45%;">文件名</th><th style="width:15%;">大小</th><th style="width:20%;">发布时间</th><th style="width:20%;">操作</th></tr></thead>
+                    <tbody>
+                        ${materials.map(m => `
+                            <tr>
+                                <td title="${m.name || ''}">${m.name || '-'}</td>
+                                <td>${this.formatBytes(m.size)}</td>
+                                <td>${m.uploadedAt || '-'}</td>
+                                <td>
+                                    <button class="btn btn-secondary" onclick="app.downloadTeacherMaterial('${courseId}', '${m.id}')">下载</button>
+                                    <button class="btn btn-danger" onclick="app.deleteTeacherMaterial('${courseId}', '${m.id}')">删除</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${materials.length === 0 ? `<tr><td colspan="4" style="color:#888; padding:18px 12px;">暂无课件</td></tr>` : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        document.getElementById('teacherContent').innerHTML = html;
+    },
+
+    async uploadTeacherMaterial(courseId) {
+        this.ensureTeacherFileUtils();
+        const input = document.getElementById('teacherMaterialFile');
+        if (!input || !input.files || input.files.length === 0) {
+            alert('请选择要发布的课件文件');
+            return;
+        }
+
+        const file = input.files[0];
+        if (file.size > 2 * 1024 * 1024) {
+            alert('文件过大（超过 2MB），请更换较小文件');
+            return;
+        }
+
+        let dataUrl = '';
+        try {
+            dataUrl = await this.readFileAsDataUrl(file);
+        } catch (e) {
+            alert(e && e.message ? e.message : '读取文件失败');
+            return;
+        }
+
+        const courses = DB.get('courses');
+        const idx = courses.findIndex(c => c.id === courseId);
+        if (idx === -1) {
+            alert('课程不存在');
+            return;
+        }
+
+        const course = courses[idx];
+        const materials = Array.isArray(course.materials) ? course.materials.slice() : [];
+        materials.push({
+            id: `MAT_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            dataUrl,
+            uploadedAt: new Date().toLocaleString(),
+            uploaderId: this.state.currentUser.id
+        });
+        courses[idx] = { ...course, materials };
+        DB.set('courses', courses);
+        this.showToast('课件已发布');
+        this.renderTeacherMaterials(courseId);
+    },
+
+    downloadTeacherMaterial(courseId, materialId) {
+        this.ensureTeacherFileUtils();
+        const course = DB.get('courses').find(c => c.id === courseId);
+        const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
+        const material = materials.find(m => m && m.id === materialId);
+        if (!material || !material.dataUrl) {
+            alert('课件不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(material.dataUrl, material.name || `material-${materialId}`);
+    },
+
+    deleteTeacherMaterial(courseId, materialId) {
+        if (!confirm('确定删除该课件吗？')) return;
+        const courses = DB.get('courses');
+        const idx = courses.findIndex(c => c.id === courseId);
+        if (idx === -1) return;
+        const course = courses[idx];
+        const materials = Array.isArray(course.materials) ? course.materials : [];
+        const next = materials.filter(m => !(m && m.id === materialId));
+        courses[idx] = { ...course, materials: next };
+        DB.set('courses', courses);
+        this.showToast('课件已删除');
+        this.renderTeacherMaterials(courseId);
+    },
+
+    renderTeacherSubmissions(courseId) {
+        this.ensureTeacherFileUtils();
+        const course = DB.get('courses').find(c => c.id === courseId);
+        if (!course) {
+            alert('课程不存在');
+            return;
+        }
+        const users = DB.get('users');
+        const subs = DB.get('submissions').filter(s => s && s.courseId === courseId);
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回课程列表</button>
+            <div class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 class="card-title">作业下载 - ${course.name}</h3>
+                    <div style="color:#666; font-size:13px;">共 ${subs.length} 份</div>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th style="width:15%;">学号</th><th style="width:15%;">姓名</th><th style="width:40%;">文件名</th><th style="width:15%;">提交时间</th><th style="width:15%;">操作</th></tr></thead>
+                    <tbody>
+                        ${subs.map(s => {
+                            const u = users.find(x => x && x.id === s.studentId);
+                            return `
+                                <tr>
+                                    <td>${s.studentId}</td>
+                                    <td>${u ? u.name : '-'}</td>
+                                    <td title="${s.fileName || ''}">${s.fileName || '-'}</td>
+                                    <td>${s.uploadedAt || '-'}</td>
+                                    <td>
+                                        <button class="btn btn-primary" onclick="app.downloadTeacherSubmission('${s.id}')">下载</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                        ${subs.length === 0 ? `<tr><td colspan="5" style="color:#888; padding:18px 12px;">暂无学生提交</td></tr>` : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        document.getElementById('teacherContent').innerHTML = html;
+    },
+
+    downloadTeacherSubmission(submissionId) {
+        this.ensureTeacherFileUtils();
+        const subs = DB.get('submissions');
+        const record = subs.find(s => s && s.id === submissionId);
+        if (!record || !record.dataUrl) {
+            alert('作业不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(record.dataUrl, record.fileName || `homework-${submissionId}`);
     },
 
     calcGrade(sid) {
@@ -251,12 +452,16 @@ Object.assign(app, {
         this.renderTeacherDashboard();
     },
 
-    // --- 修改：编辑课程界面 (增加作业要求和课件管理) ---
     renderTeacherEditCourse(courseId) {
         const course = DB.get('courses').find(c => c.id === courseId);
-        // 初始化字段
-        const materials = course.materials || []; 
-        const assignmentReq = course.assignmentReq || '';
+        if (!course) {
+            alert('课程不存在');
+            return;
+        }
+
+        const materialsCount = Array.isArray(course.materials) ? course.materials.length : 0;
+        const subsCount = DB.get('submissions').filter(s => s && s.courseId === courseId).length;
+        const assignmentReq = typeof course.assignmentReq === 'string' ? course.assignmentReq : '';
 
         const html = `
             <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回</button>
@@ -275,30 +480,18 @@ Object.assign(app, {
                         <label class="form-label">教室</label>
                         <input type="text" id="edit_classroom" class="form-input" value="${course.classroom || ''}">
                     </div>
-                    
-                    <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
 
-                    <!-- 新增：作业要求 -->
                     <div class="form-group">
                         <label class="form-label">作业/考试要求 (发布给学生)</label>
                         <textarea id="edit_assignment_req" class="form-input" rows="3" placeholder="在此输入本课程的作业提交要求...">${assignmentReq}</textarea>
                     </div>
 
-                    <!-- 新增：课件管理 -->
                     <div class="form-group">
-                        <label class="form-label">课程资料 (模拟添加)</label>
-                        <div style="display:flex; gap:10px; margin-bottom:10px;">
-                            <input type="text" id="new_material_name" class="form-input" placeholder="输入课件文件名，如：第一章课件.ppt">
-                            <button type="button" class="btn btn-secondary" onclick="app.addTeacherMaterial('${courseId}')">添加</button>
+                        <label class="form-label">课程资源</label>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-secondary" onclick="app.renderTeacherMaterials('${courseId}')">管理课件（${materialsCount}）</button>
+                            <button type="button" class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${courseId}')">查看作业（${subsCount}）</button>
                         </div>
-                        <ul id="material_list" style="background:#f9f9f9; padding:10px; border-radius:4px; list-style:none;">
-                            ${materials.length > 0 ? materials.map((m, idx) => `
-                                <li style="padding:5px 0; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
-                                    <span>📄 ${m.name}</span>
-                                    <span style="color:red; cursor:pointer; font-size:12px;" onclick="app.removeTeacherMaterial('${courseId}', ${idx})">删除</span>
-                                </li>
-                            `).join('') : '<li style="color:#999; text-align:center;">暂无课件，请添加</li>'}
-                        </ul>
                     </div>
 
                     <button type="submit" class="btn btn-primary" style="width:100%; margin-top:10px;">保存所有修改</button>
@@ -306,37 +499,6 @@ Object.assign(app, {
             </div>
         `;
         document.getElementById('teacherContent').innerHTML = html;
-    },
-
-    // 辅助：添加课件
-    addTeacherMaterial(courseId) {
-        const input = document.getElementById('new_material_name');
-        const name = input.value.trim();
-        if(!name) return alert('请输入文件名');
-
-        const courses = DB.get('courses');
-        const course = courses.find(c => c.id === courseId);
-        if(!course.materials) course.materials = [];
-        
-        course.materials.push({
-            name: name,
-            url: '#', // 模拟链接
-            date: new Date().toLocaleDateString()
-        });
-        
-        DB.set('courses', courses);
-        this.renderTeacherEditCourse(courseId); // 刷新
-    },
-
-    // 辅助：删除课件
-    removeTeacherMaterial(courseId, idx) {
-        const courses = DB.get('courses');
-        const course = courses.find(c => c.id === courseId);
-        if(course.materials) {
-            course.materials.splice(idx, 1);
-            DB.set('courses', courses);
-            this.renderTeacherEditCourse(courseId);
-        }
     },
 
     handleUpdateCourse(e, courseId) {

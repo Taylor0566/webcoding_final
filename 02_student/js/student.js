@@ -70,6 +70,52 @@ const studentStyles = `
 `;
 
 Object.assign(app, {
+    readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+            reader.readAsDataURL(file);
+        });
+    },
+
+    downloadDataUrl(dataUrl, filename) {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = filename || 'download';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    },
+
+    formatBytes(bytes) {
+        const n = Number(bytes) || 0;
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    },
+
+    getCourseById(courseId) {
+        return DB.get('courses').find(c => c.id === courseId);
+    },
+
+    saveCourse(updatedCourse) {
+        const courses = DB.get('courses');
+        const idx = courses.findIndex(c => c.id === updatedCourse.id);
+        if (idx !== -1) {
+            courses[idx] = updatedCourse;
+            DB.set('courses', courses);
+        }
+    },
+
+    getSubmissions() {
+        return DB.get('submissions');
+    },
+
+    setSubmissions(submissions) {
+        DB.set('submissions', submissions);
+    },
+
     // 2. 初始化入口
     renderStudentDashboard() {
         this.injectStudentStyles();
@@ -202,109 +248,200 @@ Object.assign(app, {
         document.getElementById('studentContent').innerHTML = html;
     },
 
-    // --- 修改：查看课件 (使用弹窗显示老师上传的课件) ---
     viewCourseMaterials(courseId, courseName) {
-        const course = DB.get('courses').find(c => c.id === courseId);
-        // 如果老师没传，显示默认兜底数据
-        const materials = (course.materials && course.materials.length > 0) 
-            ? course.materials 
-            : [
-                { name: '课程大纲.pdf (示例)', date: '2024-09-01' },
-                { name: '第一章：导论.pptx (示例)', date: '2024-09-08' }
-              ]; 
+        const course = this.getCourseById(courseId);
+        const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
 
-        const listHTML = materials.map(m => `
-            <div style="display:flex; align-items:center; padding:12px; border-bottom:1px solid #f0f0f0;">
-                <div style="font-size:24px; margin-right:15px;">📄</div>
-                <div style="flex:1;">
-                    <div style="font-weight:bold; color:#333;">${m.name}</div>
-                    <div style="font-size:12px; color:#888;">上传时间: ${m.date || '未知'}</div>
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderStudentMyCourses()" style="margin-bottom:20px;">&larr; 返回我的课程</button>
+            <div class="card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 class="card-title">课件列表 - ${courseName}</h3>
+                    <div style="color:#666; font-size:13px;">共 ${materials.length} 份课件</div>
                 </div>
-                <button class="btn btn-sm" style="background:#e3f2fd; color:#0277bd;" onclick="alert('模拟下载：${m.name}')">下载</button>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 45%">文件名</th>
+                            <th style="width: 15%">大小</th>
+                            <th style="width: 20%">发布时间</th>
+                            <th style="width: 20%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${materials.map(m => `
+                            <tr>
+                                <td title="${m.name || ''}">${m.name || '-'}</td>
+                                <td>${this.formatBytes(m.size)}</td>
+                                <td>${m.uploadedAt || '-'}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;"
+                                            onclick="app.downloadCourseMaterial('${courseId}', '${m.id}')">下载</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${materials.length === 0 ? `<tr><td colspan="4" style="color:#999; padding:20px;">暂无课件</td></tr>` : ''}
+                    </tbody>
+                </table>
             </div>
-        `).join('');
-
-        this.showModal(`📖 学习资料 - ${courseName}`, `
-            <div style="margin-bottom:10px; color:#666; font-size:13px;">以下是教师发布的课程资料：</div>
-            ${listHTML}
-        `);
+        `;
+        document.getElementById('studentContent').innerHTML = html;
     },
 
-    // --- 修改：提交作业 (显示要求 + 文件上传) ---
-    handleHomework(courseId, courseName) {
-        const course = DB.get('courses').find(c => c.id === courseId);
-        const enrollment = DB.get('enrollments').find(e => e.courseId === courseId && e.studentId === this.state.currentUser.id);
-        
-        const assignmentReq = course.assignmentReq || "教师暂未发布具体的作业文本说明，请以上课通知为准。";
-        const submittedFile = enrollment.submission; 
+    downloadCourseMaterial(courseId, materialId) {
+        const course = this.getCourseById(courseId);
+        const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
+        const material = materials.find(m => m && m.id === materialId);
+        if (!material || !material.dataUrl) {
+            alert('课件不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(material.dataUrl, material.name || `material-${materialId}`);
+    },
 
-        let statusHTML = '';
-        if (submittedFile) {
-            statusHTML = `
+    handleHomework(courseId, courseName) {
+        const course = this.getCourseById(courseId);
+        const assignmentReq = (course && typeof course.assignmentReq === 'string' && course.assignmentReq.trim())
+            ? course.assignmentReq.trim()
+            : '教师暂未发布具体的作业文本说明，请以上课通知为准。';
+
+        const studentId = this.state.currentUser.id;
+        const submissions = this.getSubmissions();
+        const current = submissions.find(s => s && s.courseId === courseId && s.studentId === studentId);
+
+        const statusHTML = current
+            ? `
                 <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:10px; border-radius:4px; margin-bottom:15px;">
                     <strong>✅ 已提交</strong><br>
-                    文件名: ${submittedFile.fileName}<br>
-                    提交时间: ${submittedFile.date}
+                    文件名: ${current.fileName}<br>
+                    提交时间: ${current.uploadedAt}
                 </div>
-            `;
-        } else {
-            statusHTML = `
+            `
+            : `
                 <div style="background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px; border-radius:4px; margin-bottom:15px;">
                     <strong>⚠️ 未提交</strong><br>请尽快完成作业并上传。
                 </div>
             `;
-        }
 
-        const formHTML = `
-            ${statusHTML}
-            <div style="margin-bottom:15px;">
-                <label style="display:block; font-weight:bold; margin-bottom:5px;">📢 作业要求：</label>
-                <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
-                    ${assignmentReq.replace(/\n/g, '<br>')}
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderStudentMyCourses()" style="margin-bottom:20px;">&larr; 返回我的课程</button>
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">作业提交 - ${courseName}</h3></div>
+
+                ${statusHTML}
+
+                <div style="margin-bottom:15px;">
+                    <div style="font-weight:600; margin-bottom:6px;">� 作业要求</div>
+                    <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
+                        ${assignmentReq.replace(/\n/g, '<br>')}
+                    </div>
                 </div>
-            </div>
-            
-            <div style="margin-bottom:20px;">
-                <label style="display:block; font-weight:bold; margin-bottom:5px;">📤 上传作业文件：</label>
-                <input type="file" id="homework_file_input" class="form-input" style="padding:8px;">
-                <div style="font-size:12px; color:#888; margin-top:5px;">支持 .zip, .doc, .pdf 格式，最大 10MB</div>
-            </div>
 
-            <div style="text-align:right;">
-                <button class="btn btn-primary" onclick="app.submitHomeworkFile('${courseId}')">确认提交</button>
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
+                    <input type="file" id="studentHomeworkFile" class="form-input" style="max-width:420px; padding: 8px 12px;">
+                    <button class="btn btn-primary" onclick="app.submitStudentHomework('${courseId}')">上传作业</button>
+                    <div style="color:#666; font-size:13px;">建议文件不超过 2MB</div>
+                </div>
+
+                <div style="color:#111; font-weight:600; margin-bottom:10px;">已提交记录</div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50%">文件名</th>
+                            <th style="width: 15%">大小</th>
+                            <th style="width: 20%">提交时间</th>
+                            <th style="width: 15%">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${current ? `
+                            <tr>
+                                <td title="${current.fileName || ''}">${current.fileName || '-'}</td>
+                                <td>${this.formatBytes(current.fileSize)}</td>
+                                <td>${current.uploadedAt || '-'}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;"
+                                            onclick="app.downloadStudentHomework('${current.id}')">下载</button>
+                                        <button class="btn btn-sm" style="background-color:#ffebee; color:#b71c1c;"
+                                            onclick="app.removeStudentHomework('${current.id}', '${courseId}', '${courseName}')">删除</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ` : `<tr><td colspan="4" style="color:#999; padding:20px;">暂无已提交作业</td></tr>`}
+                    </tbody>
+                </table>
             </div>
         `;
-
-        this.showModal(`📝 提交作业 - ${courseName}`, formHTML);
+        document.getElementById('studentContent').innerHTML = html;
     },
 
-    // --- 新增：处理上传 ---
-    submitHomeworkFile(courseId) {
-        const fileInput = document.getElementById('homework_file_input');
-        if (!fileInput || fileInput.files.length === 0) {
-            alert('请先选择一个文件！');
+    async submitStudentHomework(courseId) {
+        const input = document.getElementById('studentHomeworkFile');
+        if (!input || !input.files || input.files.length === 0) {
+            alert('请选择要上传的作业文件');
             return;
         }
 
-        const file = fileInput.files[0];
-        
-        // 模拟上传
-        const enrollments = DB.get('enrollments');
-        const idx = enrollments.findIndex(e => e.courseId === courseId && e.studentId === this.state.currentUser.id);
-        
-        if (idx !== -1) {
-            enrollments[idx].submission = {
-                fileName: file.name,
-                fileSize: (file.size / 1024).toFixed(1) + ' KB',
-                date: new Date().toLocaleString()
-            };
-            
-            DB.set('enrollments', enrollments);
-            
-            document.getElementById('app-modal').remove();
-            this.showToast(`✅ 作业 "${file.name}" 上传成功！`);
-            this.renderStudentMyCourses(); // 刷新状态
+        const file = input.files[0];
+        if (file.size > 2 * 1024 * 1024) {
+            alert('文件过大（超过 2MB），请更换较小文件');
+            return;
         }
+
+        let dataUrl = '';
+        try {
+            dataUrl = await this.readFileAsDataUrl(file);
+        } catch (e) {
+            alert(e && e.message ? e.message : '读取文件失败');
+            return;
+        }
+
+        const studentId = this.state.currentUser.id;
+        const submissions = this.getSubmissions();
+        const now = new Date().toLocaleString();
+        const idx = submissions.findIndex(s => s && s.courseId === courseId && s.studentId === studentId);
+
+        const record = {
+            id: idx !== -1 ? submissions[idx].id : `SUB_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            courseId,
+            studentId,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            dataUrl,
+            uploadedAt: now
+        };
+
+        if (idx !== -1) submissions[idx] = record;
+        else submissions.push(record);
+
+        this.setSubmissions(submissions);
+        this.showToast('作业上传成功');
+
+        const c = this.getCourseById(courseId);
+        this.handleHomework(courseId, c ? c.name : courseId);
+    },
+
+    downloadStudentHomework(submissionId) {
+        const submissions = this.getSubmissions();
+        const record = submissions.find(s => s && s.id === submissionId && s.studentId === this.state.currentUser.id);
+        if (!record || !record.dataUrl) {
+            alert('作业不存在或数据缺失');
+            return;
+        }
+        this.downloadDataUrl(record.dataUrl, record.fileName || `homework-${submissionId}`);
+    },
+
+    removeStudentHomework(submissionId, courseId, courseName) {
+        if (!confirm('确定删除已提交的作业吗？')) return;
+        const submissions = this.getSubmissions();
+        const next = submissions.filter(s => !(s && s.id === submissionId && s.studentId === this.state.currentUser.id));
+        this.setSubmissions(next);
+        this.showToast('已删除作业');
+        this.handleHomework(courseId, courseName);
     },
 
     // =========================================
