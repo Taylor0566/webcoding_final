@@ -1,6 +1,6 @@
 // --- START OF FILE student.js ---
 
-// 1. 定义样式 (新增 .btn-active-grade 样式)
+// 1. 定义样式
 const studentStyles = `
 /* --- 核心修复：固定表格布局 (防止搜索抖动) --- */
 .data-table {
@@ -115,6 +115,39 @@ Object.assign(app, {
         });
     },
 
+    // --- 新增：通用弹窗辅助函数 ---
+    showModal(title, contentHTML) {
+        const oldModal = document.getElementById('app-modal');
+        if (oldModal) oldModal.remove();
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'app-modal';
+        modalOverlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        `;
+        
+        modalOverlay.innerHTML = `
+            <div style="background:white; width:500px; max-width:90%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
+                <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
+                    <h3 style="margin:0; font-size:18px; color:#333;">${title}</h3>
+                    <button onclick="document.getElementById('app-modal').remove()" style="border:none; background:none; font-size:20px; cursor:pointer; color:#666;">&times;</button>
+                </div>
+                <div style="padding:20px; max-height:70vh; overflow-y:auto;">
+                    ${contentHTML}
+                </div>
+            </div>
+            <style>@keyframes slideDown { from {opacity:0; transform:translateY(-20px);} to {opacity:1; transform:translateY(0);} }</style>
+        `;
+        
+        document.body.appendChild(modalOverlay);
+        
+        modalOverlay.addEventListener('click', (e) => {
+            if(e.target === modalOverlay) modalOverlay.remove();
+        });
+    },
+
     // =========================================
     // 模块 1：我的课程
     // =========================================
@@ -169,13 +202,109 @@ Object.assign(app, {
         document.getElementById('studentContent').innerHTML = html;
     },
 
+    // --- 修改：查看课件 (使用弹窗显示老师上传的课件) ---
     viewCourseMaterials(courseId, courseName) {
-        alert(`正在打开【${courseName}】的学习资源...`);
+        const course = DB.get('courses').find(c => c.id === courseId);
+        // 如果老师没传，显示默认兜底数据
+        const materials = (course.materials && course.materials.length > 0) 
+            ? course.materials 
+            : [
+                { name: '课程大纲.pdf (示例)', date: '2024-09-01' },
+                { name: '第一章：导论.pptx (示例)', date: '2024-09-08' }
+              ]; 
+
+        const listHTML = materials.map(m => `
+            <div style="display:flex; align-items:center; padding:12px; border-bottom:1px solid #f0f0f0;">
+                <div style="font-size:24px; margin-right:15px;">📄</div>
+                <div style="flex:1;">
+                    <div style="font-weight:bold; color:#333;">${m.name}</div>
+                    <div style="font-size:12px; color:#888;">上传时间: ${m.date || '未知'}</div>
+                </div>
+                <button class="btn btn-sm" style="background:#e3f2fd; color:#0277bd;" onclick="alert('模拟下载：${m.name}')">下载</button>
+            </div>
+        `).join('');
+
+        this.showModal(`📖 学习资料 - ${courseName}`, `
+            <div style="margin-bottom:10px; color:#666; font-size:13px;">以下是教师发布的课程资料：</div>
+            ${listHTML}
+        `);
     },
 
+    // --- 修改：提交作业 (显示要求 + 文件上传) ---
     handleHomework(courseId, courseName) {
-        const input = prompt(`请输入【${courseName}】的作业内容：`);
-        if (input) this.showToast('作业提交成功！');
+        const course = DB.get('courses').find(c => c.id === courseId);
+        const enrollment = DB.get('enrollments').find(e => e.courseId === courseId && e.studentId === this.state.currentUser.id);
+        
+        const assignmentReq = course.assignmentReq || "教师暂未发布具体的作业文本说明，请以上课通知为准。";
+        const submittedFile = enrollment.submission; 
+
+        let statusHTML = '';
+        if (submittedFile) {
+            statusHTML = `
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:10px; border-radius:4px; margin-bottom:15px;">
+                    <strong>✅ 已提交</strong><br>
+                    文件名: ${submittedFile.fileName}<br>
+                    提交时间: ${submittedFile.date}
+                </div>
+            `;
+        } else {
+            statusHTML = `
+                <div style="background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px; border-radius:4px; margin-bottom:15px;">
+                    <strong>⚠️ 未提交</strong><br>请尽快完成作业并上传。
+                </div>
+            `;
+        }
+
+        const formHTML = `
+            ${statusHTML}
+            <div style="margin-bottom:15px;">
+                <label style="display:block; font-weight:bold; margin-bottom:5px;">📢 作业要求：</label>
+                <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
+                    ${assignmentReq.replace(/\n/g, '<br>')}
+                </div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+                <label style="display:block; font-weight:bold; margin-bottom:5px;">📤 上传作业文件：</label>
+                <input type="file" id="homework_file_input" class="form-input" style="padding:8px;">
+                <div style="font-size:12px; color:#888; margin-top:5px;">支持 .zip, .doc, .pdf 格式，最大 10MB</div>
+            </div>
+
+            <div style="text-align:right;">
+                <button class="btn btn-primary" onclick="app.submitHomeworkFile('${courseId}')">确认提交</button>
+            </div>
+        `;
+
+        this.showModal(`📝 提交作业 - ${courseName}`, formHTML);
+    },
+
+    // --- 新增：处理上传 ---
+    submitHomeworkFile(courseId) {
+        const fileInput = document.getElementById('homework_file_input');
+        if (!fileInput || fileInput.files.length === 0) {
+            alert('请先选择一个文件！');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        
+        // 模拟上传
+        const enrollments = DB.get('enrollments');
+        const idx = enrollments.findIndex(e => e.courseId === courseId && e.studentId === this.state.currentUser.id);
+        
+        if (idx !== -1) {
+            enrollments[idx].submission = {
+                fileName: file.name,
+                fileSize: (file.size / 1024).toFixed(1) + ' KB',
+                date: new Date().toLocaleString()
+            };
+            
+            DB.set('enrollments', enrollments);
+            
+            document.getElementById('app-modal').remove();
+            this.showToast(`✅ 作业 "${file.name}" 上传成功！`);
+            this.renderStudentMyCourses(); // 刷新状态
+        }
     },
 
     // =========================================
@@ -274,7 +403,7 @@ Object.assign(app, {
     },
 
     // =========================================
-    // 模块 3：成绩单 (添加了按钮高亮逻辑)
+    // 模块 3：成绩单
     // =========================================
     calculateGPA(grade) {
         if (!grade) return 0.0;
@@ -342,7 +471,6 @@ Object.assign(app, {
                                 <td style="font-weight:bold; color:#333;">${row.grade}</td>
                                 <td>${row.gpa.toFixed(1)}</td>
                                 <td>
-                                    <!-- 添加 id 和 class 方便 JS 选择 -->
                                     <button id="btn-grade-${row.id}" class="btn btn-sm grade-action-btn" 
                                         style="background-color:#f3f4f6; border:1px solid #ddd; color:#374151;"
                                         onclick="app.viewGradeDetails('${row.id}', '${row.name}')">
@@ -360,24 +488,20 @@ Object.assign(app, {
     },
 
     viewGradeDetails(courseId, courseName) {
-        // --- 1. 高亮逻辑 ---
-        // 移除所有按钮的高亮类，恢复默认样式
+        // 高亮逻辑
         document.querySelectorAll('.grade-action-btn').forEach(btn => {
             btn.classList.remove('btn-active-grade');
-            btn.style.backgroundColor = '#f3f4f6'; // 恢复默认灰色
+            btn.style.backgroundColor = '#f3f4f6';
             btn.style.color = '#374151';
             btn.style.borderColor = '#ddd';
         });
 
-        // 激活当前按钮
         const activeBtn = document.getElementById(`btn-grade-${courseId}`);
         if (activeBtn) {
             activeBtn.classList.add('btn-active-grade');
-            // 必须清除内联样式，才能让 CSS class 生效 (或者 CSS 中使用 !important)
-            // 这里我们已经 CSS 加了 !important，所以直接添加 class 即可
         }
 
-        // --- 2. 显示详情 ---
+        // 显示详情
         const enrollment = DB.get('enrollments').find(e => e.studentId === this.state.currentUser.id && e.courseId === courseId);
         if (!enrollment) return;
         const d = enrollment.details;
@@ -392,7 +516,6 @@ Object.assign(app, {
                 </div>
             </div>`;
         
-        // 简单的淡入动画
         const style = document.createElement('style');
         style.innerHTML = `@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }`;
         document.head.appendChild(style);

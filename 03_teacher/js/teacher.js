@@ -230,7 +230,9 @@ Object.assign(app, {
             desc: document.getElementById('new_desc').value,
             status: 'published',
             schedule: document.getElementById('new_schedule').value,
-            classroom: document.getElementById('new_classroom').value
+            classroom: document.getElementById('new_classroom').value,
+            materials: [],
+            assignmentReq: ''
         };
 
         courses.push(newCourse);
@@ -249,8 +251,12 @@ Object.assign(app, {
         this.renderTeacherDashboard();
     },
 
+    // --- 修改：编辑课程界面 (增加作业要求和课件管理) ---
     renderTeacherEditCourse(courseId) {
         const course = DB.get('courses').find(c => c.id === courseId);
+        // 初始化字段
+        const materials = course.materials || []; 
+        const assignmentReq = course.assignmentReq || '';
 
         const html = `
             <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回</button>
@@ -259,25 +265,78 @@ Object.assign(app, {
                 <form onsubmit="app.handleUpdateCourse(event, '${courseId}')">
                     <div class="form-group">
                         <label class="form-label">课程简介</label>
-                        <textarea id="edit_desc" class="form-input" rows="4">${course.desc}</textarea>
+                        <textarea id="edit_desc" class="form-input" rows="3">${course.desc || ''}</textarea>
                     </div>
                     <div class="form-group">
                         <label class="form-label">上课时间</label>
-                        <input type="text" id="edit_schedule" class="form-input" value="${course.schedule}">
+                        <input type="text" id="edit_schedule" class="form-input" value="${course.schedule || ''}">
                     </div>
                     <div class="form-group">
                         <label class="form-label">教室</label>
-                        <input type="text" id="edit_classroom" class="form-input" value="${course.classroom}">
+                        <input type="text" id="edit_classroom" class="form-input" value="${course.classroom || ''}">
                     </div>
-                     <div class="form-group">
-                        <label class="form-label">课件上传 (模拟)</label>
-                        <input type="file" class="form-input">
+                    
+                    <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+
+                    <!-- 新增：作业要求 -->
+                    <div class="form-group">
+                        <label class="form-label">作业/考试要求 (发布给学生)</label>
+                        <textarea id="edit_assignment_req" class="form-input" rows="3" placeholder="在此输入本课程的作业提交要求...">${assignmentReq}</textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary">保存修改</button>
+
+                    <!-- 新增：课件管理 -->
+                    <div class="form-group">
+                        <label class="form-label">课程资料 (模拟添加)</label>
+                        <div style="display:flex; gap:10px; margin-bottom:10px;">
+                            <input type="text" id="new_material_name" class="form-input" placeholder="输入课件文件名，如：第一章课件.ppt">
+                            <button type="button" class="btn btn-secondary" onclick="app.addTeacherMaterial('${courseId}')">添加</button>
+                        </div>
+                        <ul id="material_list" style="background:#f9f9f9; padding:10px; border-radius:4px; list-style:none;">
+                            ${materials.length > 0 ? materials.map((m, idx) => `
+                                <li style="padding:5px 0; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                                    <span>📄 ${m.name}</span>
+                                    <span style="color:red; cursor:pointer; font-size:12px;" onclick="app.removeTeacherMaterial('${courseId}', ${idx})">删除</span>
+                                </li>
+                            `).join('') : '<li style="color:#999; text-align:center;">暂无课件，请添加</li>'}
+                        </ul>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" style="width:100%; margin-top:10px;">保存所有修改</button>
                 </form>
             </div>
         `;
         document.getElementById('teacherContent').innerHTML = html;
+    },
+
+    // 辅助：添加课件
+    addTeacherMaterial(courseId) {
+        const input = document.getElementById('new_material_name');
+        const name = input.value.trim();
+        if(!name) return alert('请输入文件名');
+
+        const courses = DB.get('courses');
+        const course = courses.find(c => c.id === courseId);
+        if(!course.materials) course.materials = [];
+        
+        course.materials.push({
+            name: name,
+            url: '#', // 模拟链接
+            date: new Date().toLocaleDateString()
+        });
+        
+        DB.set('courses', courses);
+        this.renderTeacherEditCourse(courseId); // 刷新
+    },
+
+    // 辅助：删除课件
+    removeTeacherMaterial(courseId, idx) {
+        const courses = DB.get('courses');
+        const course = courses.find(c => c.id === courseId);
+        if(course.materials) {
+            course.materials.splice(idx, 1);
+            DB.set('courses', courses);
+            this.renderTeacherEditCourse(courseId);
+        }
     },
 
     handleUpdateCourse(e, courseId) {
@@ -288,8 +347,11 @@ Object.assign(app, {
             courses[idx].desc = document.getElementById('edit_desc').value;
             courses[idx].schedule = document.getElementById('edit_schedule').value;
             courses[idx].classroom = document.getElementById('edit_classroom').value;
+            // 保存作业要求
+            courses[idx].assignmentReq = document.getElementById('edit_assignment_req').value;
+            
             DB.set('courses', courses);
-            this.showToast('课程信息已更新');
+            this.showToast('课程信息、课件及作业要求已更新');
             this.renderTeacherDashboard();
         }
     }
