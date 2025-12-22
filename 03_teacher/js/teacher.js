@@ -1,5 +1,17 @@
 Object.assign(app, {
+    ensureTeacherCourseViewState() {
+        if (!this.state.teacherCourseView) {
+            this.state.teacherCourseView = {
+                keyword: '',
+                page: 1,
+                pageSize: 10
+            };
+        }
+        return this.state.teacherCourseView;
+    },
+
     renderTeacherDashboard() {
+        this.ensureTeacherCourseViewState();
         const container = document.getElementById('app');
         container.innerHTML = `
             <h2 style="margin-bottom:20px;">教师工作台</h2>
@@ -9,19 +21,77 @@ Object.assign(app, {
         `;
     },
 
+    renderTeacherCourseList() {
+        this.ensureTeacherCourseViewState();
+        const el = document.getElementById('teacherContent');
+        if (!el) return this.renderTeacherDashboard();
+        el.innerHTML = this.getTeacherCourseListHTML();
+    },
+
+    setTeacherCourseKeyword(keyword) {
+        const view = this.ensureTeacherCourseViewState();
+        view.keyword = String(keyword || '');
+        view.page = 1;
+        this.renderTeacherCourseList();
+    },
+
+    goTeacherCoursePage(page) {
+        const view = this.ensureTeacherCourseViewState();
+        const next = Number(page) || 1;
+        view.page = next;
+        this.renderTeacherCourseList();
+    },
+
     getTeacherCourseListHTML() {
-        const courses = DB.get('courses').filter(c => c.teacherId === this.state.currentUser.id);
+        const view = this.ensureTeacherCourseViewState();
+        const keyword = (view.keyword || '').trim();
+        const pageSize = view.pageSize || 10;
+
+        let courses = DB.get('courses').filter(c => c.teacherId === this.state.currentUser.id);
+        if (keyword) {
+            courses = courses.filter(c => {
+                const id = String(c.id || '');
+                const name = String(c.name || '');
+                const schedule = String(c.schedule || '');
+                const classroom = String(c.classroom || '');
+                return id.includes(keyword) || name.includes(keyword) || schedule.includes(keyword) || classroom.includes(keyword);
+            });
+        }
+
+        courses.sort((a, b) => String(a.id || '').localeCompare(String(b.id || ''), 'zh-CN'));
+
+        const total = courses.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const page = Math.min(Math.max(1, view.page || 1), totalPages);
+        view.page = page;
+
+        const start = (page - 1) * pageSize;
+        const end = start + pageSize;
+        const pageCourses = courses.slice(start, end);
+
+        const startPage = Math.max(1, page - 2);
+        const endPage = Math.min(totalPages, startPage + 4);
+        const pages = [];
+        for (let p = startPage; p <= endPage; p++) pages.push(p);
 
         return `
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">我教授的课程</h3>
                     <button class="btn btn-primary" style="float:right;" onclick="app.renderTeacherCreateCourse()">发布新课程</button>
+                    <input
+                        type="text"
+                        placeholder="搜索课程号/名称/时间/教室..."
+                        class="form-input"
+                        style="width: 280px; float:right; margin-right:12px; height: 36px; padding: 8px 12px;"
+                        value="${keyword}"
+                        oninput="app.setTeacherCourseKeyword(this.value)"
+                    >
                 </div>
                 <table class="data-table">
                     <thead><tr><th>课程号</th><th>课程名</th><th>状态</th><th>选课人数</th><th>操作</th></tr></thead>
                     <tbody>
-                        ${courses.map(c => {
+                        ${pageCourses.map(c => {
                             const count = DB.get('enrollments').filter(e => e.courseId === c.id).length;
                             return `
                                 <tr>
@@ -36,8 +106,19 @@ Object.assign(app, {
                                 </tr>
                             `;
                         }).join('')}
+                        ${pageCourses.length === 0 ? `<tr><td colspan="5" style="color:#888; padding:18px 12px;">暂无匹配课程</td></tr>` : ''}
                     </tbody>
                 </table>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+                    <div style="color:#666; font-size:13px;">共 ${total} 门课程，第 ${page}/${totalPages} 页</div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="btn btn-secondary" ${page <= 1 ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page - 1})">上一页</button>
+                        ${pages.map(p => `
+                            <button class="btn ${p === page ? 'btn-primary' : 'btn-secondary'}" onclick="app.goTeacherCoursePage(${p})">${p}</button>
+                        `).join('')}
+                        <button class="btn btn-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page + 1})">下一页</button>
+                    </div>
+                </div>
             </div>
         `;
     },
@@ -213,4 +294,3 @@ Object.assign(app, {
         }
     }
 });
-
