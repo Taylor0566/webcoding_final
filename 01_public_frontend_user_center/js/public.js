@@ -138,7 +138,10 @@ const app = {
 
         if (user.role === 'student') this.renderStudentDashboard();
         else if (user.role === 'teacher') this.renderTeacherDashboard();
-        else if (user.role === 'edu_admin') this.renderEduAdminDashboard();
+        else if (user.role === 'edu_admin') {
+            // 教学管理员跳转到独立页面
+            window.location.href = '../04_edu_admin/index.html';
+        }
         else if (user.role === 'sys_admin') this.renderSysAdminDashboard();
     },
 
