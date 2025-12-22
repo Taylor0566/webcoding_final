@@ -169,11 +169,21 @@ const eduAdmin = {
         // 初始化学生历史成绩（用于学生异常监控）
         if (!localStorage.getItem('student_history_grades')) {
             const historyGrades = {
+                // 成绩正常的学生
                 'S2021001': { courses: ['CS101', 'CS102'], scores: [88, 85], average: 86.5 },
-                'S2021002': { courses: ['CS101', 'CS102'], scores: [75, 78], average: 76.5 },
-                'S2021003': { courses: ['CS101'], scores: [82], average: 82 },
-                'S2021004': { courses: ['SE101'], scores: [90], average: 90 },
-                'S2021005': { courses: ['SE101'], scores: [65], average: 65 }
+                
+                // 成绩突然变好的学生（历史成绩低，本学期会高）
+                'S2021002': { courses: ['CS101', 'CS102'], scores: [55, 58], average: 56.5 },  // 历史56.5 → 本学期78（+21.5）
+                'S2021003': { courses: ['CS101'], scores: [62], average: 62 },  // 历史62 → 本学期85（+23）
+                
+                // 成绩突然下滑的学生（历史成绩高，本学期会低）
+                'S2021004': { courses: ['SE101', 'MA101'], scores: [92, 90], average: 91 },  // 历史91 → 本学期68（-23）
+                'S2021005': { courses: ['CS101', 'CS102'], scores: [88, 86], average: 87 },  // 历史87 → 本学期62（-25）
+                
+                // 更多测试数据
+                'S2022001': { courses: ['MA101'], scores: [70], average: 70 },  // 历史70 → 本学期52（-18）
+                'S2022002': { courses: ['CS102'], scores: [65], average: 65 },  // 历史65 → 本学期88（+23）
+                'S2022003': { courses: ['CS101', 'MA101'], scores: [78, 80], average: 79 }  // 正常波动
             };
             localStorage.setItem('student_history_grades', JSON.stringify(historyGrades));
         }
@@ -1861,14 +1871,26 @@ const eduAdmin = {
         const students = this.getData(this.STORAGE_KEYS.STUDENTS);
         const historyGrades = JSON.parse(localStorage.getItem('student_history_grades') || '{}');
         
+        // 为每个学生设定本学期的固定平均分（模拟真实场景）
+        const currentSemesterAverages = {
+            'S2021001': 88,   // 正常：历史86.5 → 本学期88（+1.5）
+            'S2021002': 78,   // 异常突增：历史56.5 → 本学期78（+21.5）⭐
+            'S2021003': 85,   // 异常突增：历史62 → 本学期85（+23）⭐
+            'S2021004': 68,   // 异常下滑：历史91 → 本学期68（-23）⭐
+            'S2021005': 62,   // 异常下滑：历史87 → 本学期62（-25）⭐
+            'S2022001': 52,   // 正常波动：历史70 → 本学期52（-18）
+            'S2022002': 88,   // 异常突增：历史65 → 本学期88（+23）⭐
+            'S2022003': 81    // 正常波动：历史79 → 本学期81（+2）
+        };
+        
         const anomalyStudents = [];
         
-        // 模拟分析学生成绩波动
+        // 分析学生成绩波动
         students.slice(0, 8).forEach(student => {
             const history = historyGrades[student.id];
-            if (history) {
-                // 模拟当前学期平均分
-                const currentAverage = history.average + (Math.random() * 40 - 20); // ±20分波动
+            const currentAverage = currentSemesterAverages[student.id];
+            
+            if (history && currentAverage !== undefined) {
                 const fluctuation = currentAverage - history.average;
                 
                 // 波动超过±20分视为异常
@@ -1896,12 +1918,12 @@ const eduAdmin = {
         tbody.innerHTML = anomalyStudents.map(s => {
             const rowClass = s.isAnomaly ? 'anomaly-row' : '';
             const anomalyBadge = s.isAnomaly 
-                ? (s.fluctuation > 0 
+                ? (parseFloat(s.fluctuation) > 0 
                     ? '<span class="tag tag-warning">异常：成绩突增</span>' 
                     : '<span class="tag tag-danger">异常：成绩下滑</span>')
                 : '<span class="tag tag-success">正常</span>';
             
-            const fluctuationColor = s.fluctuation > 0 ? 'var(--success-color)' : 'var(--danger-color)';
+            const fluctuationColor = parseFloat(s.fluctuation) > 0 ? 'var(--success-color)' : 'var(--danger-color)';
             
             return `
                 <tr class="${rowClass}">
@@ -1909,7 +1931,7 @@ const eduAdmin = {
                     <td>${s.name}</td>
                     <td>${s.historyAverage}</td>
                     <td>${s.currentAverage}</td>
-                    <td style="color: ${fluctuationColor}; font-weight: 600;">${s.fluctuation > 0 ? '+' : ''}${s.fluctuation}</td>
+                    <td style="color: ${fluctuationColor}; font-weight: 600;">${parseFloat(s.fluctuation) > 0 ? '+' : ''}${s.fluctuation}</td>
                     <td>${anomalyBadge}</td>
                     <td>
                         <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">查看详情</button>
