@@ -1,3 +1,5 @@
+// --- START OF FILE teacher.js ---
+
 Object.assign(app, {
     ensureTeacherFileUtils() {
         if (typeof this.readFileAsDataUrl !== 'function') {
@@ -37,6 +39,39 @@ Object.assign(app, {
             };
         }
         return this.state.teacherCourseView;
+    },
+
+    // --- 新增：教师端使用的弹窗函数 ---
+    showTeacherModal(title, contentHTML) {
+        const oldModal = document.getElementById('teacher-modal');
+        if (oldModal) oldModal.remove();
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'teacher-modal';
+        modalOverlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        `;
+        
+        modalOverlay.innerHTML = `
+            <div style="background:white; width:600px; max-width:95%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
+                <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
+                    <h3 style="margin:0; font-size:18px; color:#333;">${title}</h3>
+                    <button onclick="document.getElementById('teacher-modal').remove()" style="border:none; background:none; font-size:20px; cursor:pointer; color:#666;">&times;</button>
+                </div>
+                <div style="padding:20px; max-height:80vh; overflow-y:auto;">
+                    ${contentHTML}
+                </div>
+            </div>
+            <style>@keyframes slideDown { from {opacity:0; transform:translateY(-20px);} to {opacity:1; transform:translateY(0);} }</style>
+        `;
+        
+        document.body.appendChild(modalOverlay);
+        
+        modalOverlay.addEventListener('click', (e) => {
+            if(e.target === modalOverlay) modalOverlay.remove();
+        });
     },
 
     renderTeacherDashboard() {
@@ -235,6 +270,7 @@ Object.assign(app, {
         `;
     },
 
+    // --- 成绩录入 (保持不变) ---
     renderTeacherGradeEntry(courseId) {
         const course = DB.get('courses').find(c => c.id === courseId);
         const enrollments = DB.get('enrollments').filter(e => e.courseId === courseId);
@@ -268,6 +304,7 @@ Object.assign(app, {
         document.getElementById('teacherContent').innerHTML = html;
     },
 
+    // --- 课件管理 (保持不变) ---
     renderTeacherMaterials(courseId) {
         this.ensureTeacherFileUtils();
         const course = DB.get('courses').find(c => c.id === courseId);
@@ -385,24 +422,153 @@ Object.assign(app, {
         this.renderTeacherMaterials(courseId);
     },
 
+    // --- 作业管理 (样式修复：按钮左右分布) ---
     renderTeacherSubmissions(courseId) {
         this.ensureTeacherFileUtils();
         const course = DB.get('courses').find(c => c.id === courseId);
-        if (!course) {
-            alert('课程不存在');
-            return;
-        }
-        const users = DB.get('users');
-        const subs = DB.get('submissions').filter(s => s && s.courseId === courseId);
+        if (!course) { alert('课程不存在'); return; }
+
+        // 获取该课程的所有作业任务
+        const assignments = (DB.get('assignments') || []).filter(a => a.courseId === courseId);
+
         const html = `
             <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回课程列表</button>
             <div class="card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <h3 class="card-title">作业下载 - ${course.name}</h3>
-                    <div style="color:#666; font-size:13px;">共 ${subs.length} 份</div>
+                    <h3 class="card-title">作业管理 - ${course.name}</h3>
+                    <button class="btn btn-primary" onclick="app.openCreateAssignmentModal('${courseId}')">＋ 布置新作业</button>
                 </div>
                 <table class="data-table">
-                    <thead><tr><th style="width:15%;">学号</th><th style="width:15%;">姓名</th><th style="width:40%;">文件名</th><th style="width:15%;">提交时间</th><th style="width:15%;">操作</th></tr></thead>
+                    <!-- 调整列宽：操作列加宽至25%，提交人数减至15% -->
+                    <thead><tr><th style="width:30%;">作业标题</th><th style="width:30%;">发布时间</th><th style="width:15%;">提交人数</th><th style="width:25%;">操作</th></tr></thead>
+                    <tbody>
+                        ${assignments.map(a => {
+                            // 计算该作业的提交人数
+                            const subCount = (DB.get('submissions') || []).filter(s => s.assignmentId === a.id).length;
+                            return `
+                                <tr>
+                                    <td>${a.title}</td>
+                                    <td>${a.createdAt}</td>
+                                    <td>${subCount} 人</td>
+                                    <td>
+                                        <!-- 修改点：添加 Flex 容器使按钮左右分布 -->
+                                        <div style="display:flex; gap:10px; justify-content:center; align-items:center;">
+                                            <button class="btn btn-secondary" onclick="app.renderAssignmentDetail('${courseId}', '${a.id}')">查看/批改</button>
+                                            <button class="btn btn-danger" onclick="app.deleteAssignment('${a.id}', '${courseId}')">删除</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                        ${assignments.length === 0 ? `<tr><td colspan="4" style="color:#888; padding:20px;">暂无发布的作业，点击右上角发布。</td></tr>` : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        document.getElementById('teacherContent').innerHTML = html;
+    },
+
+    // --- 弹窗：布置新作业 ---
+    openCreateAssignmentModal(courseId) {
+        const content = `
+            <div class="form-group">
+                <label class="form-label">作业标题</label>
+                <input type="text" id="assign_title" class="form-input" placeholder="例如：期中大作业" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">作业内容/要求</label>
+                <textarea id="assign_content" class="form-input" rows="5" placeholder="请输入具体的作业要求..."></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">附件 (可选，如题目文档)</label>
+                <input type="file" id="assign_file" class="form-input">
+            </div>
+            <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="app.handleCreateAssignment('${courseId}')">确认发布</button>
+        `;
+        this.showTeacherModal('布置新作业', content);
+    },
+
+    async handleCreateAssignment(courseId) {
+        const title = document.getElementById('assign_title').value;
+        const content = document.getElementById('assign_content').value;
+        const fileInput = document.getElementById('assign_file');
+
+        if (!title) { alert('请输入作业标题'); return; }
+
+        let attachment = null;
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            try {
+                const dataUrl = await this.readFileAsDataUrl(file);
+                attachment = {
+                    name: file.name,
+                    size: file.size,
+                    dataUrl: dataUrl
+                };
+            } catch (e) {
+                alert('读取附件失败');
+                return;
+            }
+        }
+
+        const assignments = DB.get('assignments') || [];
+        const newAssign = {
+            id: `ASSIGN_${Date.now()}`,
+            courseId: courseId,
+            title: title,
+            content: content,
+            attachment: attachment,
+            createdAt: new Date().toLocaleString()
+        };
+
+        assignments.push(newAssign);
+        DB.set('assignments', assignments);
+        
+        // 关闭弹窗并刷新列表
+        document.getElementById('teacher-modal').remove();
+        this.showToast('作业发布成功');
+        this.renderTeacherSubmissions(courseId);
+    },
+
+    deleteAssignment(assignmentId, courseId) {
+        if(!confirm('删除作业将同时删除所有学生的提交记录，确定吗？')) return;
+        
+        let assignments = DB.get('assignments') || [];
+        assignments = assignments.filter(a => a.id !== assignmentId);
+        DB.set('assignments', assignments);
+
+        // 清理对应的提交
+        let subs = DB.get('submissions') || [];
+        subs = subs.filter(s => s.assignmentId !== assignmentId);
+        DB.set('submissions', subs);
+
+        this.renderTeacherSubmissions(courseId);
+    },
+
+    // --- 查看具体的作业提交情况并打分 ---
+    renderAssignmentDetail(courseId, assignmentId) {
+        const assignment = (DB.get('assignments') || []).find(a => a.id === assignmentId);
+        if (!assignment) { alert('作业不存在'); return this.renderTeacherSubmissions(courseId); }
+        
+        const allSubs = DB.get('submissions') || [];
+        // 筛选出属于该作业的提交
+        const subs = allSubs.filter(s => s.assignmentId === assignmentId);
+        const users = DB.get('users');
+
+        const html = `
+            <button class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${courseId}')" style="margin-bottom:20px;">&larr; 返回作业列表</button>
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">批改作业 - ${assignment.title}</h3>
+                    <div style="font-size:13px; color:#666; margin-top:5px;">共 ${subs.length} 份提交</div>
+                </div>
+                <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:20px; font-size:14px; color:#444;">
+                    <strong>作业要求：</strong><br>${assignment.content || '无文字内容'}
+                    ${assignment.attachment ? `<div style="margin-top:8px;"><a href="javascript:;" onclick="app.downloadDataUrl('${assignment.attachment.dataUrl}', '${assignment.attachment.name}')" style="color:#0066cc;">📎 下载附件: ${assignment.attachment.name}</a></div>` : ''}
+                </div>
+
+                <table class="data-table">
+                    <thead><tr><th>学号</th><th>姓名</th><th>提交文件</th><th>提交时间</th><th>评分</th><th>操作</th></tr></thead>
                     <tbody>
                         ${subs.map(s => {
                             const u = users.find(x => x && x.id === s.studentId);
@@ -410,15 +576,18 @@ Object.assign(app, {
                                 <tr>
                                     <td>${s.studentId}</td>
                                     <td>${u ? u.name : '-'}</td>
-                                    <td title="${s.fileName || ''}">${s.fileName || '-'}</td>
-                                    <td>${s.uploadedAt || '-'}</td>
+                                    <td><a href="javascript:;" onclick="app.downloadTeacherSubmission('${s.id}')" style="color:#0066cc; text-decoration:underline;">${s.fileName}</a></td>
+                                    <td>${s.uploadedAt}</td>
                                     <td>
-                                        <button class="btn btn-primary" onclick="app.downloadTeacherSubmission('${s.id}')">下载</button>
+                                        <input type="number" id="score_${s.id}" value="${s.score || ''}" style="width:60px; padding:4px; border:1px solid #ddd; border-radius:4px;" placeholder="0-100">
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-primary btn-sm" onclick="app.saveSubmissionScore('${s.id}')">保存评分</button>
                                     </td>
                                 </tr>
                             `;
                         }).join('')}
-                        ${subs.length === 0 ? `<tr><td colspan="5" style="color:#888; padding:18px 12px;">暂无学生提交</td></tr>` : ''}
+                        ${subs.length === 0 ? `<tr><td colspan="6" style="color:#888; padding:20px;">暂无学生提交</td></tr>` : ''}
                     </tbody>
                 </table>
             </div>
@@ -435,6 +604,20 @@ Object.assign(app, {
             return;
         }
         this.downloadDataUrl(record.dataUrl, record.fileName || `homework-${submissionId}`);
+    },
+
+    saveSubmissionScore(submissionId) {
+        const scoreInput = document.getElementById(`score_${submissionId}`);
+        const score = scoreInput.value;
+        if (score === '') return;
+
+        const subs = DB.get('submissions') || [];
+        const idx = subs.findIndex(s => s.id === submissionId);
+        if (idx !== -1) {
+            subs[idx].score = score;
+            DB.set('submissions', subs);
+            this.showToast('评分已保存');
+        }
     },
 
     calcGrade(sid) {
@@ -512,8 +695,7 @@ Object.assign(app, {
             status: 'published',
             schedule: document.getElementById('new_schedule').value,
             classroom: document.getElementById('new_classroom').value,
-            materials: [],
-            assignmentReq: ''
+            materials: []
         };
 
         courses.push(newCourse);
@@ -540,9 +722,7 @@ Object.assign(app, {
         }
 
         const materialsCount = Array.isArray(course.materials) ? course.materials.length : 0;
-        const subsCount = DB.get('submissions').filter(s => s && s.courseId === courseId).length;
-        const assignmentReq = typeof course.assignmentReq === 'string' ? course.assignmentReq : '';
-
+        
         const html = `
             <button class="btn btn-secondary" onclick="app.renderTeacherDashboard()" style="margin-bottom:20px;">&larr; 返回</button>
             <div class="card">
@@ -562,15 +742,9 @@ Object.assign(app, {
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">作业/考试要求 (发布给学生)</label>
-                        <textarea id="edit_assignment_req" class="form-input" rows="3" placeholder="在此输入本课程的作业提交要求...">${assignmentReq}</textarea>
-                    </div>
-
-                    <div class="form-group">
                         <label class="form-label">课程资源</label>
                         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <button type="button" class="btn btn-secondary" onclick="app.renderTeacherMaterials('${courseId}')">管理课件（${materialsCount}）</button>
-                            <button type="button" class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${courseId}')">查看作业（${subsCount}）</button>
                         </div>
                     </div>
 
@@ -589,11 +763,10 @@ Object.assign(app, {
             courses[idx].desc = document.getElementById('edit_desc').value;
             courses[idx].schedule = document.getElementById('edit_schedule').value;
             courses[idx].classroom = document.getElementById('edit_classroom').value;
-            // 保存作业要求
-            courses[idx].assignmentReq = document.getElementById('edit_assignment_req').value;
+            // 作业要求不再在此处保存
             
             DB.set('courses', courses);
-            this.showToast('课程信息、课件及作业要求已更新');
+            this.showToast('课程信息已更新');
             this.renderTeacherDashboard();
         }
     }

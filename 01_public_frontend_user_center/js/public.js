@@ -46,6 +46,47 @@ const app = {
         }
     },
 
+    async handleChangePassword(e) {
+        e.preventDefault();
+        const newPassword = document.getElementById('cpNewPassword').value;
+        const confirmPassword = document.getElementById('cpConfirmPassword').value;
+
+        if (newPassword !== confirmPassword) {
+            alert('两次输入的密码不一致');
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            alert('密码长度不能少于6位');
+            return;
+        }
+
+        if (!this.state.pendingUser) {
+            alert('用户状态异常，请重新登录');
+            document.getElementById('changePasswordModal').classList.remove('active');
+            this.showLoginModal();
+            return;
+        }
+
+        const result = await DB.changePassword(this.state.pendingUser.id, newPassword);
+        if (result.success) {
+            alert('密码修改成功');
+            document.getElementById('changePasswordModal').classList.remove('active');
+            
+            // Login the user properly
+            // We need to fetch the updated user from DB because resetPassword/changePassword updates it
+            const updatedUser = DB.findUser(this.state.pendingUser.id);
+            this.state.currentUser = updatedUser;
+            this.state.pendingUser = null;
+            localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+            this.updateNav();
+            this.showToast(`欢迎回来，${updatedUser.name} (${this.getRoleName(updatedUser.role)})`);
+            this.renderDashboard();
+        } else {
+            alert('密码修改失败: ' + result.error);
+        }
+    },
+
     logout() {
         this.state.currentUser = null;
         localStorage.removeItem('currentUser');
@@ -94,7 +135,7 @@ const app = {
             <div class="card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                     <h3 class="card-title">热门课程</h3>
-                    <input type="text" placeholder="搜索课程..." class="form-input" style="width: 200px;" oninput="app.filterPublicCourses(this.value)">
+                    <input type="text" placeholder="搜索课程名/编号/院系/学分..." class="form-input" style="width: 250px;" oninput="app.filterPublicCourses(this.value)">
                 </div>
                 <div id="publicCourseList">
                     ${this.renderCourseCards(courses)}
@@ -117,7 +158,8 @@ const app = {
                             <span style="float:right;">${c.credit} 学分</span>
                         </div>
                         <p style="font-size:13px; color:#888; margin-bottom:15px; height: 40px; overflow:hidden;">${c.desc}</p>
-                        <div style="font-size:12px; color:#555;">${c.schedule} | ${c.classroom}</div>
+                        <div style="font-size:12px; color:#555; margin-bottom:5px;">${c.schedule} | ${c.classroom}</div>
+                        <div style="font-size:12px; color:#666; font-style: italic;">要求: ${c.requirements || '无'}</div>
                     </div>
                 `).join('')}
             </div>
@@ -127,9 +169,80 @@ const app = {
     filterPublicCourses(keyword) {
         const courses = DB.get('courses').filter(c =>
             c.status === 'published' &&
-            (c.name.includes(keyword) || c.id.includes(keyword) || c.dept.includes(keyword))
+            (
+                c.name.includes(keyword) || 
+                c.id.includes(keyword) || 
+                c.dept.includes(keyword) ||
+                String(c.credit).includes(keyword)
+            )
         );
         document.getElementById('publicCourseList').innerHTML = this.renderCourseCards(courses);
+    },
+
+    showForgotPasswordModal() {
+        this.hideLoginModal();
+        document.getElementById('forgotPasswordModal').classList.add('active');
+        document.getElementById('fpStep1').style.display = 'block';
+        document.getElementById('fpStep2').style.display = 'none';
+        document.getElementById('forgotPasswordForm').reset();
+    },
+
+    hideForgotPasswordModal() {
+        document.getElementById('forgotPasswordModal').classList.remove('active');
+    },
+
+    verifyUserAndSendCode() {
+        const username = document.getElementById('fpUsername').value;
+        if (!username) {
+            alert('请输入账号');
+            return;
+        }
+
+        const user = DB.findUser(username);
+        if (!user) {
+            alert('账号不存在');
+            return;
+        }
+
+        if (!user.email) {
+            alert('该账号未绑定邮箱，无法重置密码，请联系管理员。');
+            return;
+        }
+
+        // Simulate sending email
+        const code = Math.floor(100000 + Math.random() * 900000);
+        this.state.resetCode = String(code);
+        this.state.resetUser = username;
+
+        alert(`模拟邮件发送：\n您的验证码是：${code}\n发送至：${user.email}`);
+        
+        document.getElementById('fpStep1').style.display = 'none';
+        document.getElementById('fpStep2').style.display = 'block';
+    },
+
+    async handleForgotPassword(e) {
+        e.preventDefault();
+        const code = document.getElementById('fpCode').value;
+        const newPassword = document.getElementById('fpNewPassword').value;
+
+        if (code !== this.state.resetCode) {
+            alert('验证码错误');
+            return;
+        }
+
+        if (!newPassword || newPassword.length < 6) {
+            alert('新密码长度不能少于6位');
+            return;
+        }
+
+        const result = await DB.resetPassword(this.state.resetUser, newPassword);
+        if (result.success) {
+            alert('密码重置成功，请重新登录');
+            this.hideForgotPasswordModal();
+            this.showLoginModal();
+        } else {
+            alert('密码重置失败: ' + result.error);
+        }
     },
 
     renderDashboard() {

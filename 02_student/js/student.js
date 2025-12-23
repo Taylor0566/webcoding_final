@@ -62,14 +62,39 @@ const studentStyles = `
     font-weight: bold;
 }
 
-/* 搜索框样式 */
-#courseSearchInput:focus {
-    outline: 2px solid #0066cc;
+/* 搜索框和下拉框通用样式 */
+.toolbar-input {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
     border-radius: 4px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.toolbar-input:focus {
+    border-color: #0066cc;
+}
+
+/* 下拉框样式 */
+.semester-select {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    outline: none;
+}
+.semester-select:focus {
+    border-color: #0066cc;
 }
 `;
 
 Object.assign(app, {
+    // =========================================
+    // 基础工具函数
+    // =========================================
     readFileAsDataUrl(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -99,24 +124,17 @@ Object.assign(app, {
         return DB.get('courses').find(c => c.id === courseId);
     },
 
-    saveCourse(updatedCourse) {
-        const courses = DB.get('courses');
-        const idx = courses.findIndex(c => c.id === updatedCourse.id);
-        if (idx !== -1) {
-            courses[idx] = updatedCourse;
-            DB.set('courses', courses);
-        }
-    },
-
     getSubmissions() {
-        return DB.get('submissions');
+        return DB.get('submissions') || [];
     },
 
     setSubmissions(submissions) {
         DB.set('submissions', submissions);
     },
 
-    // 2. 初始化入口
+    // =========================================
+    // 页面初始化与导航
+    // =========================================
     renderStudentDashboard() {
         this.injectStudentStyles();
 
@@ -161,7 +179,7 @@ Object.assign(app, {
         });
     },
 
-    // --- 新增：通用弹窗辅助函数 ---
+    // 通用弹窗函数
     showModal(title, contentHTML) {
         const oldModal = document.getElementById('app-modal');
         if (oldModal) oldModal.remove();
@@ -175,12 +193,12 @@ Object.assign(app, {
         `;
         
         modalOverlay.innerHTML = `
-            <div style="background:white; width:500px; max-width:90%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
+            <div style="background:white; width:600px; max-width:95%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2); overflow:hidden; animation: slideDown 0.3s;">
                 <div style="padding:15px 20px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; background:#f8fafc;">
                     <h3 style="margin:0; font-size:18px; color:#333;">${title}</h3>
                     <button onclick="document.getElementById('app-modal').remove()" style="border:none; background:none; font-size:20px; cursor:pointer; color:#666;">&times;</button>
                 </div>
-                <div style="padding:20px; max-height:70vh; overflow-y:auto;">
+                <div style="padding:20px; max-height:80vh; overflow-y:auto;">
                     ${contentHTML}
                 </div>
             </div>
@@ -195,23 +213,103 @@ Object.assign(app, {
     },
 
     // =========================================
-    // 模块 1：我的课程
+    // 模块 1：我的课程 (新增搜索和排序 - 修复中文输入Bug)
     // =========================================
+    
+    // 初始化我的课程视图状态
+    ensureStudentMyCoursesState() {
+        if (!this.state.studentMyCoursesView) {
+            this.state.studentMyCoursesView = {
+                keyword: '',
+                sortKey: 'semester', // 默认按时间排序
+                sortOrder: 'desc'    // 'asc' or 'desc'
+            };
+        }
+        return this.state.studentMyCoursesView;
+    },
+
     renderStudentMyCourses() {
         localStorage.setItem('student_last_tab', 'my-courses');
         this.updateStudentNav('nav-my-courses');
 
+        const viewState = this.ensureStudentMyCoursesState();
         const enrollments = DB.get('enrollments').filter(e => e.studentId === this.state.currentUser.id);
         const courses = DB.get('courses');
 
-        const myCourses = enrollments.map(e => {
+        // 1. 合并数据
+        let myCourses = enrollments.map(e => {
             const c = courses.find(course => course.id === e.courseId);
-            return { ...c, ...e };
+            return { ...c, ...e, semester: c ? (c.semester || '2024秋季') : '未知' };
+        });
+
+        // 2. 搜索过滤
+        const keyword = viewState.keyword.trim().toLowerCase();
+        if (keyword) {
+            myCourses = myCourses.filter(c => 
+                (c.name && c.name.toLowerCase().includes(keyword)) ||
+                (c.id && c.id.toLowerCase().includes(keyword)) ||
+                (c.teacherName && c.teacherName.toLowerCase().includes(keyword))
+            );
+        }
+
+        // 3. 排序逻辑
+        myCourses.sort((a, b) => {
+            let valA, valB;
+            
+            if (viewState.sortKey === 'semester') {
+                const parseSem = (s) => {
+                    const year = parseInt(s) || 0;
+                    const isFall = s.includes('秋');
+                    return year + (isFall ? 0.6 : 0.1);
+                };
+                valA = parseSem(a.semester);
+                valB = parseSem(b.semester);
+            } else if (viewState.sortKey === 'status') {
+                valA = a.grade ? 1 : 0;
+                valB = b.grade ? 1 : 0;
+            } else {
+                valA = a.id;
+                valB = b.id;
+            }
+
+            if (valA < valB) return viewState.sortOrder === 'asc' ? -1 : 1;
+            if (valA > valB) return viewState.sortOrder === 'asc' ? 1 : -1;
+            return 0;
         });
 
         const html = `
             <div class="card">
-                <div class="card-header"><h3 class="card-title">我正在修读的课程</h3></div>
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <h3 class="card-title" style="margin:0;">我正在修读的课程</h3>
+                    
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <!-- 排序工具 -->
+                        <div style="display:flex; align-items:center; gap:5px;">
+                            <span style="font-size:13px; color:#666;">排序:</span>
+                            <select class="semester-select" style="padding: 4px 8px;" onchange="app.setMyCoursesSort(this.value)">
+                                <option value="semester" ${viewState.sortKey === 'semester' ? 'selected' : ''}>选课时间</option>
+                                <option value="status" ${viewState.sortKey === 'status' ? 'selected' : ''}>状态</option>
+                                <option value="id" ${viewState.sortKey === 'id' ? 'selected' : ''}>课程号</option>
+                            </select>
+                            <button class="btn btn-sm" style="background-color:#f3f4f6; border:1px solid #ddd; color:#333;" 
+                                onclick="app.toggleMyCoursesSortOrder()">
+                                ${viewState.sortOrder === 'asc' ? '⬆️ 升序' : '⬇️ 降序'}
+                            </button>
+                        </div>
+
+                        <!-- 搜索框 (修复: 使用 Enter 键或点击按钮触发，避免 oninput 中文输入问题) -->
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" 
+                                id="myCoursesSearchInput"
+                                class="toolbar-input" 
+                                style="width: 180px;" 
+                                placeholder="搜索课程/教师..." 
+                                value="${viewState.keyword}"
+                                onkeyup="if(event.key === 'Enter') app.doMyCoursesSearch()">
+                            <button class="btn btn-primary btn-sm" onclick="app.doMyCoursesSearch()">搜索</button>
+                        </div>
+                    </div>
+                </div>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -219,8 +317,9 @@ Object.assign(app, {
                             <th style="width: 25%">课程名</th>
                             <th style="width: 15%">教师</th>
                             <th style="width: 10%">学分</th>
-                            <th style="width: 15%">状态</th>
-                            <th style="width: 20%">学习任务</th>
+                            <th style="width: 10%">学期</th>
+                            <th style="width: 10%">状态</th>
+                            <th style="width: 15%">学习任务</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -230,24 +329,54 @@ Object.assign(app, {
                                 <td>${c.name}</td>
                                 <td>${c.teacherName}</td>
                                 <td>${c.credit}</td>
+                                <td style="color:#666; font-size:13px;">${c.semester}</td>
                                 <td><span class="${c.grade ? 'status-done' : 'status-ongoing'}">${c.grade ? '已结课' : '进行中'}</span></td>
                                 <td>
                                     <div class="action-buttons">
                                         <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;" 
                                             onclick="app.viewCourseMaterials('${c.id}', '${c.name}')">📖 查看课件</button>
                                         <button class="btn btn-sm" style="background-color:#fff3e0; color:#e65100;" 
-                                            onclick="app.handleHomework('${c.id}', '${c.name}')">📝 提交作业</button>
+                                            onclick="app.handleHomework('${c.id}', '${c.name}')">📝 作业列表</button>
                                     </div>
                                 </td>
                             </tr>
                         `).join('')}
+                        ${myCourses.length === 0 ? `<tr><td colspan="7" style="color:#999; padding:20px;">未找到匹配的课程</td></tr>` : ''}
                     </tbody>
                 </table>
             </div>
         `;
         document.getElementById('studentContent').innerHTML = html;
+        
+        // 保持搜索框显示正确的值 (但不自动聚焦，以免打断操作流)
+        const inputEl = document.getElementById('myCoursesSearchInput');
+        if (inputEl) {
+            inputEl.value = viewState.keyword;
+        }
     },
 
+    // 执行搜索：读取输入框值 -> 更新状态 -> 重绘
+    doMyCoursesSearch() {
+        const input = document.getElementById('myCoursesSearchInput');
+        const val = input ? input.value : '';
+        const view = this.ensureStudentMyCoursesState();
+        view.keyword = val;
+        this.renderStudentMyCourses();
+    },
+
+    setMyCoursesSort(key) {
+        const view = this.ensureStudentMyCoursesState();
+        view.sortKey = key;
+        this.renderStudentMyCourses();
+    },
+
+    toggleMyCoursesSortOrder() {
+        const view = this.ensureStudentMyCoursesState();
+        view.sortOrder = view.sortOrder === 'asc' ? 'desc' : 'asc';
+        this.renderStudentMyCourses();
+    },
+
+    // --- 课件功能 ---
     viewCourseMaterials(courseId, courseName) {
         const course = this.getCourseById(courseId);
         const materials = (course && Array.isArray(course.materials)) ? course.materials : [];
@@ -301,76 +430,50 @@ Object.assign(app, {
         this.downloadDataUrl(material.dataUrl, material.name || `material-${materialId}`);
     },
 
+    // --- 作业功能 ---
     handleHomework(courseId, courseName) {
-        const course = this.getCourseById(courseId);
-        const assignmentReq = (course && typeof course.assignmentReq === 'string' && course.assignmentReq.trim())
-            ? course.assignmentReq.trim()
-            : '教师暂未发布具体的作业文本说明，请以上课通知为准。';
-
+        const assignments = (DB.get('assignments') || []).filter(a => a.courseId === courseId);
         const studentId = this.state.currentUser.id;
-        const submissions = this.getSubmissions();
-        const current = submissions.find(s => s && s.courseId === courseId && s.studentId === studentId);
-
-        const statusHTML = current
-            ? `
-                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:10px; border-radius:4px; margin-bottom:15px;">
-                    <strong>✅ 已提交</strong><br>
-                    文件名: ${current.fileName}<br>
-                    提交时间: ${current.uploadedAt}
-                </div>
-            `
-            : `
-                <div style="background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px; border-radius:4px; margin-bottom:15px;">
-                    <strong>⚠️ 未提交</strong><br>请尽快完成作业并上传。
-                </div>
-            `;
+        const allSubs = DB.get('submissions') || [];
 
         const html = `
             <button class="btn btn-secondary" onclick="app.renderStudentMyCourses()" style="margin-bottom:20px;">&larr; 返回我的课程</button>
             <div class="card">
-                <div class="card-header"><h3 class="card-title">作业提交 - ${courseName}</h3></div>
+                <div class="card-header"><h3 class="card-title">作业列表 - ${courseName}</h3></div>
 
-                ${statusHTML}
-
-                <div style="margin-bottom:15px;">
-                    <div style="font-weight:600; margin-bottom:6px;">� 作业要求</div>
-                    <div style="background:#f9fafb; padding:10px; border-radius:4px; font-size:14px; color:#444; line-height:1.5;">
-                        ${assignmentReq.replace(/\n/g, '<br>')}
-                    </div>
-                </div>
-
-                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px;">
-                    <input type="file" id="studentHomeworkFile" class="form-input" style="max-width:420px; padding: 8px 12px;">
-                    <button class="btn btn-primary" onclick="app.submitStudentHomework('${courseId}')">上传作业</button>
-                    <div style="color:#666; font-size:13px;">建议文件不超过 2MB</div>
-                </div>
-
-                <div style="color:#111; font-weight:600; margin-bottom:10px;">已提交记录</div>
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="width: 50%">文件名</th>
-                            <th style="width: 15%">大小</th>
-                            <th style="width: 20%">提交时间</th>
-                            <th style="width: 15%">操作</th>
+                            <th style="width: 40%">作业标题</th>
+                            <th style="width: 20%">发布时间</th>
+                            <th style="width: 20%">状态</th>
+                            <th style="width: 20%">操作</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${current ? `
-                            <tr>
-                                <td title="${current.fileName || ''}">${current.fileName || '-'}</td>
-                                <td>${this.formatBytes(current.fileSize)}</td>
-                                <td>${current.uploadedAt || '-'}</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;"
-                                            onclick="app.downloadStudentHomework('${current.id}')">下载</button>
-                                        <button class="btn btn-sm" style="background-color:#ffebee; color:#b71c1c;"
-                                            onclick="app.removeStudentHomework('${current.id}', '${courseId}', '${courseName}')">删除</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ` : `<tr><td colspan="4" style="color:#999; padding:20px;">暂无已提交作业</td></tr>`}
+                        ${assignments.map(a => {
+                            const sub = allSubs.find(s => s.assignmentId === a.id && s.studentId === studentId);
+                            let statusHtml = '<span style="color:#e65100; background:#fff3e0; padding:2px 8px; border-radius:12px; font-size:12px;">未提交</span>';
+                            if (sub) {
+                                if (sub.score) {
+                                    statusHtml = `<span style="color:#166534; background:#f0fdf4; padding:2px 8px; border-radius:12px; font-size:12px;">已评分: ${sub.score}分</span>`;
+                                } else {
+                                    statusHtml = '<span style="color:#0066cc; background:#f0f9ff; padding:2px 8px; border-radius:12px; font-size:12px;">已提交</span>';
+                                }
+                            }
+
+                            return `
+                                <tr>
+                                    <td>${a.title}</td>
+                                    <td>${a.createdAt}</td>
+                                    <td>${statusHtml}</td>
+                                    <td>
+                                        <button class="btn btn-primary btn-sm" onclick="app.viewAssignmentDetail('${a.id}')">查看/提交</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                        ${assignments.length === 0 ? `<tr><td colspan="4" style="color:#999; padding:20px;">老师暂未布置作业</td></tr>` : ''}
                     </tbody>
                 </table>
             </div>
@@ -378,8 +481,69 @@ Object.assign(app, {
         document.getElementById('studentContent').innerHTML = html;
     },
 
-    async submitStudentHomework(courseId) {
-        const input = document.getElementById('studentHomeworkFile');
+    viewAssignmentDetail(assignmentId) {
+        const assignment = (DB.get('assignments') || []).find(a => a.id === assignmentId);
+        if(!assignment) return;
+
+        const studentId = this.state.currentUser.id;
+        const allSubs = DB.get('submissions') || [];
+        const currentSub = allSubs.find(s => s.assignmentId === assignmentId && s.studentId === studentId);
+
+        let subHtml = '';
+        if (currentSub) {
+            subHtml = `
+                <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:15px; border-radius:4px; margin-top:20px;">
+                    <strong>✅ 我已提交</strong><br>
+                    文件名: <span style="font-family:monospace;">${currentSub.fileName}</span> (${this.formatBytes(currentSub.fileSize)})<br>
+                    提交时间: ${currentSub.uploadedAt}<br>
+                    ${currentSub.score ? `<strong>得分: <span style="font-size:18px; color:#d32f2f;">${currentSub.score}</span></strong>` : '<span>等待老师评分</span>'}
+                    
+                    <div style="margin-top:10px;">
+                         <button class="btn btn-sm" style="background-color:#e3f2fd; color:#0d47a1;" onclick="app.downloadStudentHomework('${currentSub.id}')">下载我的作业</button>
+                         ${!currentSub.score ? `<button class="btn btn-sm" style="background-color:#ffebee; color:#b71c1c; margin-left:10px;" onclick="app.removeStudentHomework('${currentSub.id}', '${assignment.courseId}', '')">删除重交</button>` : ''}
+                    </div>
+                </div>
+            `;
+        } else {
+            subHtml = `
+                <div style="margin-top:20px; padding:15px; border:1px solid #eee; border-radius:4px; background:#fff;">
+                    <h4 style="margin:0 0 10px 0;">📤 上交作业</h4>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <input type="file" id="homeworkFile_${assignmentId}" class="form-input" style="max-width:420px; padding: 8px 12px;">
+                        <button class="btn btn-primary" onclick="app.submitStudentHomework('${assignmentId}', '${assignment.courseId}')">上传文件</button>
+                    </div>
+                    <div style="color:#666; font-size:13px; margin-top:5px;">建议文件不超过 2MB</div>
+                </div>
+            `;
+        }
+
+        const html = `
+            <div style="padding:5px;">
+                <div style="margin-bottom:15px;">
+                    <h3 style="margin:0 0 10px 0;">${assignment.title}</h3>
+                    <div style="background:#f9f9f9; padding:15px; border-radius:4px; line-height:1.6; color:#333;">
+                        ${assignment.content || '无详细文字说明'}
+                    </div>
+                    ${assignment.attachment ? `
+                        <div style="margin-top:15px;">
+                            <strong>附件下载：</strong>
+                            <button class="btn btn-sm" style="background:#fff; border:1px solid #0066cc; color:#0066cc;" 
+                                onclick="app.downloadDataUrl('${assignment.attachment.dataUrl}', '${assignment.attachment.name}')">
+                                📎 ${assignment.attachment.name} (${this.formatBytes(assignment.attachment.size)})
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+                <hr style="border:0; border-top:1px solid #eee;">
+                ${subHtml}
+            </div>
+        `;
+
+        this.showModal('作业详情', html);
+    },
+
+    async submitStudentHomework(assignmentId, courseId) {
+        const input = document.getElementById(`homeworkFile_${assignmentId}`);
         if (!input || !input.files || input.files.length === 0) {
             alert('请选择要上传的作业文件');
             return;
@@ -400,34 +564,34 @@ Object.assign(app, {
         }
 
         const studentId = this.state.currentUser.id;
-        const submissions = this.getSubmissions();
-        const now = new Date().toLocaleString();
-        const idx = submissions.findIndex(s => s && s.courseId === courseId && s.studentId === studentId);
-
+        const submissions = DB.get('submissions') || [];
+        
         const record = {
-            id: idx !== -1 ? submissions[idx].id : `SUB_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-            courseId,
-            studentId,
+            id: `SUB_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            assignmentId: assignmentId,
+            courseId: courseId,
+            studentId: studentId,
             fileName: file.name,
             fileType: file.type,
             fileSize: file.size,
-            dataUrl,
-            uploadedAt: now
+            dataUrl: dataUrl,
+            uploadedAt: new Date().toLocaleString(),
+            score: null
         };
 
-        if (idx !== -1) submissions[idx] = record;
-        else submissions.push(record);
-
-        this.setSubmissions(submissions);
+        submissions.push(record);
+        DB.set('submissions', submissions);
+        
         this.showToast('作业上传成功');
-
-        const c = this.getCourseById(courseId);
-        this.handleHomework(courseId, c ? c.name : courseId);
+        document.getElementById('app-modal').remove();
+        
+        const course = this.getCourseById(courseId);
+        this.handleHomework(courseId, course ? course.name : '');
     },
 
     downloadStudentHomework(submissionId) {
-        const submissions = this.getSubmissions();
-        const record = submissions.find(s => s && s.id === submissionId && s.studentId === this.state.currentUser.id);
+        const submissions = DB.get('submissions') || [];
+        const record = submissions.find(s => s.id === submissionId);
         if (!record || !record.dataUrl) {
             alert('作业不存在或数据缺失');
             return;
@@ -435,13 +599,17 @@ Object.assign(app, {
         this.downloadDataUrl(record.dataUrl, record.fileName || `homework-${submissionId}`);
     },
 
-    removeStudentHomework(submissionId, courseId, courseName) {
+    removeStudentHomework(submissionId, courseId, _unused) {
         if (!confirm('确定删除已提交的作业吗？')) return;
-        const submissions = this.getSubmissions();
-        const next = submissions.filter(s => !(s && s.id === submissionId && s.studentId === this.state.currentUser.id));
-        this.setSubmissions(next);
+        let submissions = DB.get('submissions') || [];
+        submissions = submissions.filter(s => s.id !== submissionId);
+        DB.set('submissions', submissions);
+        
         this.showToast('已删除作业');
-        this.handleHomework(courseId, courseName);
+        document.getElementById('app-modal').remove();
+
+        const course = this.getCourseById(courseId);
+        this.handleHomework(courseId, course ? course.name : '');
     },
 
     // =========================================
@@ -557,35 +725,91 @@ Object.assign(app, {
         return 0.0;
     },
 
-    renderStudentGrades() {
+    renderStudentGrades(selectedSemester = null) {
         localStorage.setItem('student_last_tab', 'grades');
         this.updateStudentNav('nav-grades');
 
         const enrollments = DB.get('enrollments').filter(e => e.studentId === this.state.currentUser.id && e.grade !== null);
         const courses = DB.get('courses');
 
-        let totalCredits = 0;
-        let totalPoints = 0;
-        
-        const gradeRows = enrollments.map(e => {
+        const allGradeData = enrollments.map(e => {
             const c = courses.find(course => course.id === e.courseId);
-            const gpa = this.calculateGPA(e.grade);
-            const credit = parseFloat(c.credit);
-            
-            totalCredits += credit;
-            totalPoints += gpa * credit;
-
-            return { ...c, grade: e.grade, gpa: gpa, details: e.details };
+            const semester = (c && c.semester) ? c.semester : '2024秋季';
+            return { 
+                ...c, 
+                grade: e.grade, 
+                details: e.details,
+                semester: semester
+            };
         });
 
-        const avgGPA = totalCredits > 0 ? (totalPoints / totalCredits).toFixed(2) : "0.00";
+        let allSemCredits = 0;
+        let allSemPoints = 0;
+        allGradeData.forEach(d => {
+            const gpa = this.calculateGPA(d.grade);
+            const credit = parseFloat(d.credit || 0);
+            allSemCredits += credit;
+            allSemPoints += gpa * credit;
+        });
+        const allAvgGPA = allSemCredits > 0 ? (allSemPoints / allSemCredits).toFixed(2) : "0.00";
+
+        const uniqueSemesters = [...new Set(allGradeData.map(d => d.semester))].sort().reverse();
+        
+        if (!selectedSemester && uniqueSemesters.length > 0) {
+            selectedSemester = uniqueSemesters[0];
+        } else if (!selectedSemester) {
+            selectedSemester = '2024秋季';
+        }
+
+        const filteredData = allGradeData.filter(d => d.semester === selectedSemester);
+
+        let currentSemCredits = 0;
+        let currentSemPoints = 0;
+        
+        const gradeRows = filteredData.map(row => {
+            const gpa = this.calculateGPA(row.grade);
+            const credit = parseFloat(row.credit || 0);
+            
+            currentSemCredits += credit;
+            currentSemPoints += gpa * credit;
+
+            return { ...row, gpa: gpa };
+        });
+
+        const currentSemAvgGPA = currentSemCredits > 0 ? (currentSemPoints / currentSemCredits).toFixed(2) : "0.00";
 
         const html = `
+            <div class="card" style="margin-bottom:20px; background: linear-gradient(to right, #e3f2fd, #f8fafc); border-left: 5px solid #0066cc;">
+                <div style="padding:15px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0 0 5px 0; color:#0d47a1;">🎓 学业总进度</h3>
+                        <div style="color:#555; font-size:14px;">在校期间所有课程统计</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:14px; color:#666; margin-right:15px;">累计修读学分: <strong style="font-size:18px; color:#333;">${allSemCredits}</strong></span>
+                        <span style="font-size:14px; color:#666;">总平均绩点(GPA): <strong style="font-size:18px; color:#e65100;">${allAvgGPA}</strong></span>
+                    </div>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <h3 class="card-title">学期成绩总览</h3>
-                    <div style="background:#f0f9ff; padding:8px 15px; border-radius:4px; color:#0288d1; font-weight:bold;">
-                        总学分: ${totalCredits} &nbsp;|&nbsp; 平均绩点: ${avgGPA}
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <h3 class="card-title" style="margin:0;">学期成绩单</h3>
+                        <select class="semester-select" onchange="app.renderStudentGrades(this.value)">
+                            ${uniqueSemesters.map(sem => 
+                                `<option value="${sem}" ${sem === selectedSemester ? 'selected' : ''}>${sem}</option>`
+                            ).join('')}
+                            ${uniqueSemesters.length === 0 ? `<option value="2024秋季">2024秋季</option>` : ''}
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                         <button class="btn btn-primary" onclick="app.showGradeTrendChart()" style="display:flex; align-items:center; gap:5px;">
+                            📊 查看成绩趋势图
+                        </button>
+                        <div style="background:#f9fafb; padding:6px 12px; border-radius:4px; font-size:13px; color:#666; border:1px solid #eee;">
+                            本学期绩点: <strong style="color:#0066cc;">${currentSemAvgGPA}</strong>
+                        </div>
                     </div>
                 </div>
                 <table class="data-table">
@@ -600,9 +824,9 @@ Object.assign(app, {
                         </tr>
                     </thead>
                     <tbody>
-                        ${gradeRows.map(row => `
+                        ${gradeRows.length > 0 ? gradeRows.map(row => `
                             <tr>
-                                <td>2024秋季</td>
+                                <td>${row.semester}</td>
                                 <td>${row.name}</td>
                                 <td>${row.credit}</td>
                                 <td style="font-weight:bold; color:#333;">${row.grade}</td>
@@ -615,7 +839,7 @@ Object.assign(app, {
                                     </button>
                                 </td>
                             </tr>
-                        `).join('')}
+                        `).join('') : '<tr><td colspan="6" style="color:#999; padding:20px;">该学期暂无成绩记录</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -624,8 +848,85 @@ Object.assign(app, {
         document.getElementById('studentContent').innerHTML = html;
     },
 
+    showGradeTrendChart() {
+        const enrollments = DB.get('enrollments').filter(e => e.studentId === this.state.currentUser.id && e.grade !== null);
+        const courses = DB.get('courses');
+
+        const semStats = {};
+        enrollments.forEach(e => {
+            const c = courses.find(course => course.id === e.courseId);
+            const sem = (c && c.semester) ? c.semester : '未知学期';
+            const gpa = this.calculateGPA(e.grade);
+            const credit = parseFloat((c && c.credit) || 0);
+
+            if (!semStats[sem]) semStats[sem] = { totalPoints: 0, totalCredits: 0 };
+            semStats[sem].totalPoints += gpa * credit;
+            semStats[sem].totalCredits += credit;
+        });
+
+        const sortedData = Object.keys(semStats).map(sem => {
+            const d = semStats[sem];
+            const avg = d.totalCredits > 0 ? (d.totalPoints / d.totalCredits) : 0;
+            return { semester: sem, gpa: avg };
+        }).sort((a, b) => {
+            const yearA = parseInt(a.semester) || 0;
+            const yearB = parseInt(b.semester) || 0;
+            if (yearA !== yearB) return yearA - yearB;
+            const isSpringA = a.semester.includes('春');
+            const isSpringB = b.semester.includes('春');
+            if (isSpringA && !isSpringB) return -1;
+            if (!isSpringA && isSpringB) return 1;
+            return 0;
+        });
+
+        if (sortedData.length === 0) {
+            alert('暂无成绩数据，无法生成图表');
+            return;
+        }
+
+        const width = 550;
+        const height = 300;
+        const padding = 40;
+        const chartW = width - padding * 2;
+        const chartH = height - padding * 2;
+
+        const maxGPA = 4.5;
+        const getY = (gpa) => height - padding - (gpa / maxGPA) * chartH;
+        const getX = (index) => padding + (index * (chartW / (Math.max(1, sortedData.length - 1))));
+
+        let pointsStr = '';
+        const circles = sortedData.map((d, i) => {
+            const x = sortedData.length === 1 ? width / 2 : getX(i); 
+            const y = getY(d.gpa);
+            if (i === 0) pointsStr += `${x},${y}`;
+            else pointsStr += ` ${x},${y}`;
+            
+            return `<circle cx="${x}" cy="${y}" r="5" fill="#0066cc" stroke="white" stroke-width="2">
+                        <title>${d.semester}: ${d.gpa.toFixed(2)}</title>
+                    </circle>
+                    <text x="${x}" y="${y - 10}" font-size="12" text-anchor="middle" fill="#0066cc" font-weight="bold">${d.gpa.toFixed(2)}</text>
+                    <text x="${x}" y="${height - padding + 20}" font-size="12" text-anchor="middle" fill="#555">${d.semester}</text>`;
+        }).join('');
+
+        const svgContent = `
+            <div style="text-align:center;">
+                <svg width="${width}" height="${height}" style="background:white; border-radius:4px;">
+                    <line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#ddd" stroke-width="1" />
+                    <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#ddd" stroke-width="1" />
+                    <text x="${padding - 10}" y="${getY(4.0)}" font-size="10" text-anchor="end" fill="#999">4.0</text>
+                    <text x="${padding - 10}" y="${getY(2.0)}" font-size="10" text-anchor="end" fill="#999">2.0</text>
+                    <text x="${padding - 10}" y="${height - padding}" font-size="10" text-anchor="end" fill="#999">0</text>
+                    <polyline points="${pointsStr}" fill="none" stroke="#0066cc" stroke-width="2" />
+                    ${circles}
+                </svg>
+                <div style="margin-top:10px; color:#666; font-size:12px;">X轴：学期 (时间顺序) / Y轴：平均绩点</div>
+            </div>
+        `;
+
+        this.showModal('📈 成绩变化趋势 (从早到晚)', svgContent);
+    },
+
     viewGradeDetails(courseId, courseName) {
-        // 高亮逻辑
         document.querySelectorAll('.grade-action-btn').forEach(btn => {
             btn.classList.remove('btn-active-grade');
             btn.style.backgroundColor = '#f3f4f6';
@@ -638,7 +939,6 @@ Object.assign(app, {
             activeBtn.classList.add('btn-active-grade');
         }
 
-        // 显示详情
         const enrollment = DB.get('enrollments').find(e => e.studentId === this.state.currentUser.id && e.courseId === courseId);
         if (!enrollment) return;
         const d = enrollment.details;
