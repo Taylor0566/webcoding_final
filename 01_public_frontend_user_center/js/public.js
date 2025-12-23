@@ -194,10 +194,105 @@ const app = {
                     ${this.renderCourseCards(publishedCourses)}
                 </div>
             </div>
+
+            <!-- Chat Widget Button -->
+            <div id="chat-widget-btn" onclick="app.toggleChat()" style="position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; background: #0066cc; border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 1000; transition: transform 0.3s; color: white;">
+                <span style="font-size: 30px;">💬</span>
+            </div>
+
+            <!-- Chat Window -->
+            <div id="chat-window" style="position: fixed; bottom: 100px; right: 30px; width: 320px; height: 450px; background: white; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.15); display: none; flex-direction: column; overflow: hidden; z-index: 1000; border: 1px solid #eee;">
+                <div style="background: #0066cc; color: white; padding: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                    <span>在线客服</span>
+                    <span onclick="app.toggleChat()" style="cursor: pointer; font-size: 20px;">×</span>
+                </div>
+                <div id="chat-messages" style="flex: 1; padding: 15px; overflow-y: auto; background: #f9f9f9;">
+                    <div style="margin-bottom: 15px; display: flex;">
+                        <div style="width: 32px; height: 32px; background: #ddd; border-radius: 50%; margin-right: 10px; flex-shrink: 0; display: flex; justify-content: center; align-items: center;">🤖</div>
+                        <div style="background: white; padding: 10px 15px; border-radius: 0 12px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); max-width: 80%; font-size: 14px; line-height: 1.4;">
+                            您好！我是您的智能助手。请问有什么可以帮您？
+                        </div>
+                    </div>
+                    <div id="chat-options" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                        <button onclick="app.sendChatMessage('如何重置密码？')" style="background: white; border: 1px solid #0066cc; color: #0066cc; padding: 5px 10px; border-radius: 15px; font-size: 12px; cursor: pointer;">如何重置密码？</button>
+                        <button onclick="app.sendChatMessage('选课时间是什么时候？')" style="background: white; border: 1px solid #0066cc; color: #0066cc; padding: 5px 10px; border-radius: 15px; font-size: 12px; cursor: pointer;">选课时间是什么时候？</button>
+                        <button onclick="app.sendChatMessage('如何联系管理员？')" style="background: white; border: 1px solid #0066cc; color: #0066cc; padding: 5px 10px; border-radius: 15px; font-size: 12px; cursor: pointer;">如何联系管理员？</button>
+                    </div>
+                </div>
+                <div style="padding: 10px; border-top: 1px solid #eee; background: white;">
+                    <input type="text" id="chat-input" placeholder="输入您的问题..." style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px;" onkeypress="if(event.key === 'Enter') { app.sendChatMessage(this.value); this.value = ''; }">
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <footer style="text-align: center; padding: 40px 0; color: #86868b; font-size: 13px; border-top: 1px solid #e5e5e5; margin-top: 40px;">
+                <div style="margin-bottom: 10px;">
+                    <a href="#" style="color: #555; text-decoration: none; margin: 0 10px;">关于我们</a> | 
+                    <a href="#" style="color: #555; text-decoration: none; margin: 0 10px;">联系方式</a> | 
+                    <a href="#" style="color: #555; text-decoration: none; margin: 0 10px;">帮助中心</a> | 
+                    <a href="#" style="color: #555; text-decoration: none; margin: 0 10px;">隐私政策</a>
+                </div>
+                <p>&copy; 2024 成绩管理教学平台 (Educational Administration System). All rights reserved.</p>
+                <p style="margin-top: 5px;">地址：科技大道888号 | 电话：0755-88888888 | 邮箱：support@edu.admin</p>
+            </footer>
         `;
 
         // Start news ticker
         this.startNewsTicker();
+    },
+
+    toggleChat() {
+        const win = document.getElementById('chat-window');
+        const btn = document.getElementById('chat-widget-btn');
+        if (win.style.display === 'none' || win.style.display === '') {
+            win.style.display = 'flex';
+            btn.style.transform = 'scale(0)';
+            // Focus input
+            setTimeout(() => document.getElementById('chat-input').focus(), 100);
+        } else {
+            win.style.display = 'none';
+            btn.style.transform = 'scale(1)';
+        }
+    },
+
+    sendChatMessage(msg) {
+        if (!msg.trim()) return;
+        const chatMessages = document.getElementById('chat-messages');
+        const options = document.getElementById('chat-options');
+
+        // Append User Message
+        const userMsgHTML = `
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end;">
+                <div style="background: #0066cc; color: white; padding: 10px 15px; border-radius: 12px 12px 0 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); max-width: 80%; font-size: 14px; line-height: 1.4;">
+                    ${msg}
+                </div>
+            </div>
+        `;
+        // Insert before options
+        options.insertAdjacentHTML('beforebegin', userMsgHTML);
+        
+        // Scroll to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Simulate Reply
+        setTimeout(() => {
+            let reply = '抱歉，我不明白您的问题。建议您联系人工客服。';
+            if (msg.includes('密码')) reply = '您可以在登录页面点击“忘记密码”进行重置。重置需要验证您的注册邮箱。';
+            else if (msg.includes('选课')) reply = '2024秋季学期选课将于9月1日正式开始，请留意系统公告。';
+            else if (msg.includes('管理员')) reply = '管理员联系邮箱：support@edu.admin，或致电 0755-88888888。';
+            else if (msg.includes('你好') || msg.includes('您好')) reply = '您好！有什么可以帮您的吗？';
+
+            const botMsgHTML = `
+                <div style="margin-bottom: 15px; display: flex;">
+                    <div style="width: 32px; height: 32px; background: #ddd; border-radius: 50%; margin-right: 10px; flex-shrink: 0; display: flex; justify-content: center; align-items: center;">🤖</div>
+                    <div style="background: white; padding: 10px 15px; border-radius: 0 12px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); max-width: 80%; font-size: 14px; line-height: 1.4;">
+                        ${reply}
+                    </div>
+                </div>
+            `;
+            options.insertAdjacentHTML('beforebegin', botMsgHTML);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }, 600);
     },
 
     startNewsTicker() {
