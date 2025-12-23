@@ -123,11 +123,19 @@ const app = {
 
     renderHome() {
         const container = document.getElementById('app');
-        const courses = DB.get('courses').filter(c => c.status === 'published');
+        const allCourses = DB.get('courses');
+        const publishedCourses = allCourses.filter(c => c.status === 'published');
         
+        // Statistics
+        const stats = {
+            courses: allCourses.length,
+            users: DB.get('users').length,
+            enrollments: DB.get('enrollments').length
+        };
+
         // Extract unique departments and credits for filters
-        const depts = [...new Set(courses.map(c => c.dept))].sort();
-        const credits = [...new Set(courses.map(c => c.credit))].sort((a, b) => a - b);
+        const depts = [...new Set(publishedCourses.map(c => c.dept))].sort();
+        const credits = [...new Set(publishedCourses.map(c => c.credit))].sort((a, b) => a - b);
 
         container.innerHTML = `
             <div class="hero-section">
@@ -136,6 +144,37 @@ const app = {
                 ${!this.state.currentUser ? `<button class="btn btn-primary" onclick="app.showLoginModal()" style="padding: 12px 30px; font-size: 18px;">立即登录</button>` : ''}
             </div>
             
+            <!-- Data Dashboard -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; padding: 0 10px;">
+                <div class="card" style="text-align: center; padding: 25px; margin-bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="font-size: 36px; font-weight: 700; color: #0066cc; margin-bottom: 5px; line-height: 1.2;">${stats.courses}</div>
+                    <div style="color: #86868b; font-size: 14px; font-weight: 500;">开设课程</div>
+                </div>
+                <div class="card" style="text-align: center; padding: 25px; margin-bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="font-size: 36px; font-weight: 700; color: #34c759; margin-bottom: 5px; line-height: 1.2;">${stats.users}</div>
+                    <div style="color: #86868b; font-size: 14px; font-weight: 500;">师生总数</div>
+                </div>
+                <div class="card" style="text-align: center; padding: 25px; margin-bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="font-size: 36px; font-weight: 700; color: #ff9500; margin-bottom: 5px; line-height: 1.2;">${stats.enrollments}</div>
+                    <div style="color: #86868b; font-size: 14px; font-weight: 500;">累计选课</div>
+                </div>
+            </div>
+
+            <!-- News Ticker -->
+            <div class="card" style="margin-bottom: 30px; padding: 15px 20px; display: flex; align-items: center; gap: 15px;">
+                <div style="background: #eef2f5; padding: 4px 8px; border-radius: 4px; color: #555; font-size: 12px; font-weight: 600; white-space: nowrap;">
+                    📢 系统公告
+                </div>
+                <div style="flex: 1; overflow: hidden; height: 24px; position: relative;">
+                    <div id="news-ticker" style="position: absolute; width: 100%; transition: transform 0.5s ease;">
+                        <div style="height: 24px; line-height: 24px; color: #333; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">🎉 欢迎使用全新升级的成绩管理教学平台！</div>
+                        <div style="height: 24px; line-height: 24px; color: #333; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">⚠️ 2026春季学期选课将于下周一正式开始，请同学们做好准备。</div>
+                        <div style="height: 24px; line-height: 24px; color: #333; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">🔧 系统将于本周五晚22:00-24:00进行例行维护，届时可能无法访问。</div>
+                        <div style="height: 24px; line-height: 24px; color: #333; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">💡 提示：首次登录请及时修改初始密码，保障账户安全。</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="card">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
                     <h3 class="card-title">热门课程</h3>
@@ -152,31 +191,63 @@ const app = {
                     </div>
                 </div>
                 <div id="publicCourseList">
-                    ${this.renderCourseCards(courses)}
+                    ${this.renderCourseCards(publishedCourses)}
                 </div>
             </div>
         `;
+
+        // Start news ticker
+        this.startNewsTicker();
+    },
+
+    startNewsTicker() {
+        const ticker = document.getElementById('news-ticker');
+        if (!ticker) return;
+
+        let currentIndex = 0;
+        const items = ticker.children;
+        const itemCount = items.length;
+
+        // Clone first item to end for seamless looping (optional logic, but simple cycling is fine for now)
+        // For simple vertical slide:
+        setInterval(() => {
+            currentIndex++;
+            if (currentIndex >= itemCount) {
+                currentIndex = 0;
+                ticker.style.transition = 'none'; // Disable transition for instant jump
+                ticker.style.transform = `translateY(0)`;
+                // Force reflow
+                void ticker.offsetWidth;
+                // Next tick will animate to index 1
+                return; // Skip this interval to reset
+            }
+            
+            ticker.style.transition = 'transform 0.5s ease';
+            ticker.style.transform = `translateY(-${currentIndex * 24}px)`;
+        }, 3000);
     },
 
     renderCourseCards(courses) {
         if (courses.length === 0) return '<div style="padding:20px; text-align:center; color:#888;">暂无课程</div>';
 
         return `
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
-                ${courses.map(c => `
-                    <div style="border: 1px solid #eee; border-radius: 12px; padding: 20px; background: #fafafa;">
-                        <h4 style="font-size:18px; margin-bottom:8px;">${c.name}</h4>
-                        <div style="color:#666; font-size:14px; margin-bottom:12px;">
-                            <span style="background:#eee; padding:2px 6px; border-radius:4px;">${c.id}</span>
-                            <span style="margin-left:8px;">${c.teacherName}</span>
-                            <span style="float:right;">${c.credit} 学分</span>
+            <div style="max-height: 740px; overflow-y: auto; padding-right: 5px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+                    ${courses.map(c => `
+                        <div style="border: 1px solid #eee; border-radius: 12px; padding: 20px; background: #fafafa; height: 100%; box-sizing: border-box;">
+                            <h4 style="font-size:18px; margin-bottom:8px;">${c.name}</h4>
+                            <div style="color:#666; font-size:14px; margin-bottom:12px;">
+                                <span style="background:#eee; padding:2px 6px; border-radius:4px;">${c.id}</span>
+                                <span style="margin-left:8px;">${c.teacherName}</span>
+                                <span style="float:right;">${c.credit} 学分</span>
+                            </div>
+                            <div style="font-size:12px; color:#555; margin-bottom:8px; padding: 4px 8px; background: #eef2f5; border-radius: 4px; display: inline-block;">${c.dept}</div>
+                            <p style="font-size:13px; color:#888; margin-bottom:15px; height: 40px; overflow:hidden;">${c.desc}</p>
+                            <div style="font-size:12px; color:#555; margin-bottom:5px;">${c.schedule} | ${c.classroom}</div>
+                            <div style="font-size:12px; color:#666; font-style: italic;">要求: ${c.requirements || '无'}</div>
                         </div>
-                        <div style="font-size:12px; color:#555; margin-bottom:8px; padding: 4px 8px; background: #eef2f5; border-radius: 4px; display: inline-block;">${c.dept}</div>
-                        <p style="font-size:13px; color:#888; margin-bottom:15px; height: 40px; overflow:hidden;">${c.desc}</p>
-                        <div style="font-size:12px; color:#555; margin-bottom:5px;">${c.schedule} | ${c.classroom}</div>
-                        <div style="font-size:12px; color:#666; font-style: italic;">要求: ${c.requirements || '无'}</div>
-                    </div>
-                `).join('')}
+                    `).join('')}
+                </div>
             </div>
         `;
     },
