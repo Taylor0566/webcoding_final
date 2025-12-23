@@ -49,42 +49,35 @@ Object.assign(app, {
                 ${this.getTeacherCourseListHTML()}
             </div>
         `;
+        this.renderTeacherCourseList();
     },
 
     renderTeacherCourseList() {
         this.ensureTeacherCourseViewState();
         const el = document.getElementById('teacherContent');
         if (!el) return this.renderTeacherDashboard();
-        el.innerHTML = this.getTeacherCourseListHTML();
-    },
+        if (!this.ensureTeacherCourseListLayout()) return;
 
-    setTeacherCourseKeyword(keyword) {
         const view = this.ensureTeacherCourseViewState();
-        view.keyword = String(keyword || '');
-        view.page = 1;
-        this.renderTeacherCourseList();
-    },
-
-    goTeacherCoursePage(page) {
-        const view = this.ensureTeacherCourseViewState();
-        const next = Number(page) || 1;
-        view.page = next;
-        this.renderTeacherCourseList();
-    },
-
-    getTeacherCourseListHTML() {
-        const view = this.ensureTeacherCourseViewState();
-        const keyword = (view.keyword || '').trim();
+        const keyword = String(view.keyword || '').trim();
+        const lowerKeyword = keyword.toLowerCase();
         const pageSize = view.pageSize || 10;
 
         let courses = DB.get('courses').filter(c => c.teacherId === this.state.currentUser.id);
-        if (keyword) {
+        if (lowerKeyword) {
             courses = courses.filter(c => {
-                const id = String(c.id || '');
-                const name = String(c.name || '');
-                const schedule = String(c.schedule || '');
-                const classroom = String(c.classroom || '');
-                return id.includes(keyword) || name.includes(keyword) || schedule.includes(keyword) || classroom.includes(keyword);
+                const id = String(c.id || '').toLowerCase();
+                const name = String(c.name || '').toLowerCase();
+                const schedule = String(c.schedule || '').toLowerCase();
+                const classroom = String(c.classroom || '').toLowerCase();
+                const dept = String(c.dept || '').toLowerCase();
+                const desc = String(c.desc || '').toLowerCase();
+                return id.includes(lowerKeyword)
+                    || name.includes(lowerKeyword)
+                    || schedule.includes(lowerKeyword)
+                    || classroom.includes(lowerKeyword)
+                    || dept.includes(lowerKeyword)
+                    || desc.includes(lowerKeyword);
             });
         }
 
@@ -104,52 +97,139 @@ Object.assign(app, {
         const pages = [];
         for (let p = startPage; p <= endPage; p++) pages.push(p);
 
+        const countByCourse = new Map();
+        const enrollments = DB.get('enrollments');
+        for (const e of enrollments) {
+            if (!e || !e.courseId) continue;
+            countByCourse.set(e.courseId, (countByCourse.get(e.courseId) || 0) + 1);
+        }
+
+        const tbody = document.getElementById('teacherCourseTableBody');
+        if (tbody) {
+            tbody.innerHTML = pageCourses.map(c => {
+                const count = countByCourse.get(c.id) || 0;
+                return `
+                    <tr>
+                        <td>${c.id}</td>
+                        <td>${c.name}</td>
+                        <td>${c.status === 'published' ? '已发布' : '草稿'}</td>
+                        <td>${count}</td>
+                        <td>
+                            <button class="btn btn-secondary" onclick="app.renderTeacherGradeEntry('${c.id}')">录入成绩</button>
+                            <button class="btn btn-secondary" onclick="app.renderTeacherMaterials('${c.id}')">课件</button>
+                            <button class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${c.id}')">作业</button>
+                            <button class="btn btn-secondary" onclick="app.renderTeacherEditCourse('${c.id}')">管理</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('') + (pageCourses.length === 0 ? `<tr><td colspan="5" style="color:#888; padding:18px 12px;">暂无匹配课程</td></tr>` : '');
+        }
+
+        const summary = document.getElementById('teacherCourseSummary');
+        if (summary) summary.textContent = `共 ${total} 门课程，第 ${page}/${totalPages} 页`;
+
+        const pagination = document.getElementById('teacherCoursePagination');
+        if (pagination) {
+            pagination.innerHTML = `
+                <button class="btn btn-secondary" ${page <= 1 ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page - 1})">上一页</button>
+                ${pages.map(p => `
+                    <button class="btn ${p === page ? 'btn-primary' : 'btn-secondary'}" onclick="app.goTeacherCoursePage(${p})">${p}</button>
+                `).join('')}
+                <button class="btn btn-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page + 1})">下一页</button>
+            `;
+        }
+    },
+
+    ensureTeacherCourseListLayout() {
+        const view = this.ensureTeacherCourseViewState();
+        const el = document.getElementById('teacherContent');
+        if (!el) return false;
+
+        let input = document.getElementById('teacherCourseSearch');
+        let tbody = document.getElementById('teacherCourseTableBody');
+        if (!input || !tbody) {
+            el.innerHTML = this.getTeacherCourseListHTML();
+            input = document.getElementById('teacherCourseSearch');
+            tbody = document.getElementById('teacherCourseTableBody');
+        }
+
+        if (input) {
+            if (document.activeElement !== input) {
+                const next = String(view.keyword || '');
+                if (input.value !== next) input.value = next;
+            }
+
+            if (!input.dataset.bound) {
+                input.dataset.bound = '1';
+                input.addEventListener('compositionstart', (e) => this.onTeacherCourseSearchCompositionStart(e));
+                input.addEventListener('compositionend', (e) => this.onTeacherCourseSearchCompositionEnd(e, input));
+                input.addEventListener('input', (e) => this.onTeacherCourseSearchInput(e, input));
+            }
+        }
+
+        return true;
+    },
+
+    onTeacherCourseSearchCompositionStart(e) {
+        this._teacherSearchComposing = true;
+    },
+
+    onTeacherCourseSearchCompositionEnd(e, inputEl) {
+        this._teacherSearchComposing = false;
+        const value = inputEl && typeof inputEl.value === 'string'
+            ? inputEl.value
+            : (e && e.target && typeof e.target.value === 'string' ? e.target.value : '');
+        this.setTeacherCourseKeyword(value);
+    },
+
+    onTeacherCourseSearchInput(e, inputEl) {
+        if (e && e.isComposing) return;
+        this._teacherSearchComposing = false;
+        const value = inputEl && typeof inputEl.value === 'string'
+            ? inputEl.value
+            : (e && e.target && typeof e.target.value === 'string' ? e.target.value : '');
+        this.setTeacherCourseKeyword(value);
+    },
+
+    setTeacherCourseKeyword(keyword) {
+        const view = this.ensureTeacherCourseViewState();
+        const raw = String(keyword || '');
+
+        if (raw === view.keyword) return;
+
+        view.keyword = raw;
+        view.page = 1;
+        this.renderTeacherCourseList();
+    },
+
+    goTeacherCoursePage(page) {
+        const view = this.ensureTeacherCourseViewState();
+        const next = Number(page) || 1;
+        view.page = next;
+        this.renderTeacherCourseList();
+    },
+
+    getTeacherCourseListHTML() {
         return `
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">我教授的课程</h3>
                     <button class="btn btn-primary" style="float:right;" onclick="app.renderTeacherCreateCourse()">发布新课程</button>
                     <input
+                        id="teacherCourseSearch"
                         type="text"
                         placeholder="搜索课程号/名称/时间/教室..."
                         class="form-input"
                         style="width: 280px; float:right; margin-right:12px; height: 36px; padding: 8px 12px;"
-                        value="${keyword}"
-                        oninput="app.setTeacherCourseKeyword(this.value)"
                     >
                 </div>
                 <table class="data-table">
                     <thead><tr><th>课程号</th><th>课程名</th><th>状态</th><th>选课人数</th><th>操作</th></tr></thead>
-                    <tbody>
-                        ${pageCourses.map(c => {
-                            const count = DB.get('enrollments').filter(e => e.courseId === c.id).length;
-                            return `
-                                <tr>
-                                    <td>${c.id}</td>
-                                    <td>${c.name}</td>
-                                    <td>${c.status === 'published' ? '已发布' : '草稿'}</td>
-                                    <td>${count}</td>
-                                    <td>
-                                        <button class="btn btn-secondary" onclick="app.renderTeacherGradeEntry('${c.id}')">录入成绩</button>
-                                        <button class="btn btn-secondary" onclick="app.renderTeacherMaterials('${c.id}')">课件</button>
-                                        <button class="btn btn-secondary" onclick="app.renderTeacherSubmissions('${c.id}')">作业</button>
-                                        <button class="btn btn-secondary" onclick="app.renderTeacherEditCourse('${c.id}')">管理</button>
-                                    </td>
-                                </tr>
-                            `;
-                        }).join('')}
-                        ${pageCourses.length === 0 ? `<tr><td colspan="5" style="color:#888; padding:18px 12px;">暂无匹配课程</td></tr>` : ''}
-                    </tbody>
+                    <tbody id="teacherCourseTableBody"></tbody>
                 </table>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
-                    <div style="color:#666; font-size:13px;">共 ${total} 门课程，第 ${page}/${totalPages} 页</div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="btn btn-secondary" ${page <= 1 ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page - 1})">上一页</button>
-                        ${pages.map(p => `
-                            <button class="btn ${p === page ? 'btn-primary' : 'btn-secondary'}" onclick="app.goTeacherCoursePage(${p})">${p}</button>
-                        `).join('')}
-                        <button class="btn btn-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="app.goTeacherCoursePage(${page + 1})">下一页</button>
-                    </div>
+                    <div id="teacherCourseSummary" style="color:#666; font-size:13px;"></div>
+                    <div id="teacherCoursePagination" style="display:flex; gap:8px; align-items:center;"></div>
                 </div>
             </div>
         `;
