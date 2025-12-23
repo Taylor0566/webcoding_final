@@ -97,7 +97,7 @@ Object.assign(app, {
                             style="padding:8px; border:1px solid #ddd; border-radius:4px; width:200px;"
                             oninput="app.searchEduStudents(this.value)">
                         <button class="btn btn-primary" onclick="app.showAddStudentModal()">添加学生</button>
-                        <button class="btn btn-secondary" onclick="app.importStudentsDemo()">批量导入</button>
+                        <button class="btn btn-secondary" onclick="app.showImportStudentsModal()">批量导入</button>
                     </div>
                 </div>
                 <table class="data-table" id="studentsTable">
@@ -340,7 +340,236 @@ Object.assign(app, {
         this.renderEduAdminStudents();
     },
 
-    importStudentsDemo() {
+    showImportStudentsModal() {
+        const modalContent = `
+            <div style="padding: 10px;">
+                <div class="alert alert-info" style="background:#e3f2fd; color:#0d47a1; padding:10px; border-radius:4px; margin-bottom:20px; font-size:13px;">
+                    <strong>📝 说明：</strong><br>
+                    1. 请上传标准格式的 <strong>CSV 文件</strong>（Excel 请“另存为” CSV 格式）。<br>
+                    2. 文件需包含表头：<strong>学号, 姓名, 班级</strong>（顺序不限）。<br>
+                    3. 初始密码将统一设定，学生首次登录时<strong>必须修改密码</strong>。
+                </div>
+                
+                <form onsubmit="app.handleImportStudents(event)">
+                    <div class="form-group">
+                        <label class="form-label">选择文件</label>
+                        <input type="file" id="importFile" class="form-input" accept=".csv" required>
+                        <div style="margin-top:5px; font-size:12px;">
+                            <a href="javascript:void(0)" onclick="app.downloadStudentTemplate()" style="color:#2196F3; text-decoration:none;">⬇️ 下载导入模板</a>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">统一初始密码</label>
+                        <input type="text" id="initialPassword" class="form-input" value="password" required>
+                        <small style="color:#666;">默认为 password，导入后请通知学生。</small>
+                    </div>
+
+                    <div id="importResult" style="margin-bottom:15px; display:none;"></div>
+
+                    <button type="submit" id="btnImport" class="btn btn-primary" style="width:100%;">开始导入</button>
+                </form>
+            </div>
+        `;
+        
+        this.showEduModal('批量导入学生账号', modalContent);
+    },
+
+    downloadStudentTemplate() {
+        const csvContent = "\uFEFF学号,姓名,班级,专业\nS2024001,张三,2024级计算机1班,计算机科学与技术\nS2024002,李四,2024级软件工程1班,软件工程";
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", "学生导入模板.csv");
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    },
+
+    async handleImportStudents(e) {
+        e.preventDefault();
+        
+        const fileInput = document.getElementById('importFile');
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const btn = document.getElementById('btnImport');
+        btn.disabled = true;
+        btn.innerText = '正在处理...';
+        
+        const initialPassword = document.getElementById('initialPassword').value.trim();
+        if (!initialPassword) {
+            alert('请设置初始密码');
+            btn.disabled = false;
+            btn.innerText = '开始导入';
+            return;
+        }
+
+        try {
+            const text = await this.readFileAsText(file);
+            const rows = this.parseCSV(text);
+            
+            if (rows.length === 0) {
+                throw new Error('文件内容为空或格式不正确');
+            }
+
+            // 验证表头
+            const headers = rows[0].map(h => h.trim());
+            const idIndex = headers.indexOf('学号');
+            const nameIndex = headers.indexOf('姓名');
+            const classIndex = headers.indexOf('班级');
+            // 专业是可选的，如果没有则尝试找 '专业' 列
+            const majorIndex = headers.indexOf('专业');
+
+            if (idIndex === -1 || nameIndex === -1 || classIndex === -1) {
+                throw new Error('表头缺失，请确保包含：学号, 姓名, 班级');
+            }
+
+            const users = DB.get('users');
+            let successCount = 0;
+            let failCount = 0;
+            const failReasons = [];
+
+            // 准备密码哈希（批量使用相同的初始密码，生成一次即可？不行，每个用户应该有不同的Salt）
+            // 如果使用 Security.createPasswordRecord，它会随机生成 Salt。
+            // 为了性能，我们逐个生成。
+
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (row.length < 3) continue; // 跳过空行
+
+                const id = row[idIndex]?.trim();
+                const name = row[nameIndex]?.trim();
+                const cls = row[classIndex]?.trim();
+                const major = majorIndex !== -1 ? (row[majorIndex]?.trim() || '') : '';
+
+                if (!id || !name) continue;
+
+                // 检查重复
+                if (users.find(u => u.id === id)) {
+                    failCount++;
+                    failReasons.push(`学号 ${id} 已存在`);
+                    continue;
+                }
+
+                // 创建新用户
+                let passwordData;
+                if (typeof Security !== 'undefined' && Security.createPasswordRecord) {
+                    passwordData = await Security.createPasswordRecord(initialPassword);
+                } else {
+                    // Fallback to legacy
+                    passwordData = {
+                        passwordHash: btoa(id + initialPassword), // Simple legacy mock
+                        salt: id,
+                        algo: 'legacy'
+                    };
+                }
+
+                const newUser = {
+                    id: id,
+                    name: name,
+                    role: 'student',
+                    email: `${id.toLowerCase()}@szu.edu.cn`,
+                    class: cls,
+                    major: major,
+                    passwordHash: passwordData.hash || passwordData.passwordHash,
+                    salt: passwordData.salt,
+                    passwordAlgo: passwordData.algo, // 记录算法
+                    passwordIterations: passwordData.iterations,
+                    loginAttempts: 0,
+                    lockUntil: 0,
+                    mustChangePassword: true, // 强制首次登录修改密码
+                    createdAt: new Date().toISOString()
+                };
+
+                users.push(newUser);
+                successCount++;
+            }
+
+            DB.set('users', users);
+            
+            // 显示结果
+            const resultDiv = document.getElementById('importResult');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `
+                <div style="padding:10px; background:#f0f9eb; border:1px solid #c2e7b0; color:#3c763d; border-radius:4px;">
+                    ✅ 成功导入: <strong>${successCount}</strong> 人
+                </div>
+                ${failCount > 0 ? `
+                <div style="margin-top:10px; padding:10px; background:#feb; border:1px solid #faebcc; color:#8a6d3b; border-radius:4px; max-height:100px; overflow-y:auto;">
+                    ⚠️ 失败: <strong>${failCount}</strong> 人<br>
+                    <ul style="margin:5px 0 0 20px; padding:0; font-size:12px;">
+                        ${failReasons.map(r => `<li>${r}</li>`).join('')}
+                    </ul>
+                </div>` : ''}
+            `;
+
+            if (successCount > 0) {
+                this.showEduToast(`成功导入 ${successCount} 名学生`);
+                this.renderEduAdminStudents(); // 刷新列表
+                // 不关闭弹窗，让用户看结果
+            }
+
+        } catch (err) {
+            alert('导入失败：' + err.message);
+            console.error(err);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '开始导入';
+        }
+    },
+
+    readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = e => reject(e);
+            reader.readAsText(file, 'UTF-8'); // 默认 UTF-8，如果乱码可能需要 GBK
+        });
+    },
+
+    parseCSV(text) {
+        // 简单的 CSV 解析器，处理引号
+        const rows = [];
+        let currentRow = [];
+        let currentCell = '';
+        let insideQuote = false;
+        
+        // 统一换行符
+        text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const nextChar = text[i + 1];
+
+            if (char === '"') {
+                if (insideQuote && nextChar === '"') {
+                    currentCell += '"';
+                    i++; // 跳过下一个引号
+                } else {
+                    insideQuote = !insideQuote;
+                }
+            } else if (char === ',' && !insideQuote) {
+                currentRow.push(currentCell);
+                currentCell = '';
+            } else if (char === '\n' && !insideQuote) {
+                currentRow.push(currentCell);
+                rows.push(currentRow);
+                currentRow = [];
+                currentCell = '';
+            } else {
+                currentCell += char;
+            }
+        }
+        if (currentCell) currentRow.push(currentCell);
+        if (currentRow.length > 0) rows.push(currentRow);
+        
+        return rows;
+    },
+
+    importStudentsDemo_OLD() {
         if (!confirm('模拟批量导入学生数据（将添加10名测试学生）？')) return;
         
         const users = DB.get('users');

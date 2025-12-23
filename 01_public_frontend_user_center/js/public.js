@@ -124,6 +124,10 @@ const app = {
     renderHome() {
         const container = document.getElementById('app');
         const courses = DB.get('courses').filter(c => c.status === 'published');
+        
+        // Extract unique departments and credits for filters
+        const depts = [...new Set(courses.map(c => c.dept))].sort();
+        const credits = [...new Set(courses.map(c => c.credit))].sort((a, b) => a - b);
 
         container.innerHTML = `
             <div class="hero-section">
@@ -133,9 +137,19 @@ const app = {
             </div>
             
             <div class="card">
-                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
                     <h3 class="card-title">热门课程</h3>
-                    <input type="text" placeholder="搜索课程名/编号/院系/学分..." class="form-input" style="width: 250px;" oninput="app.filterPublicCourses(this.value)">
+                    <div style="display: flex; gap: 10px;">
+                        <select id="deptFilter" class="form-input" style="width: 150px;" onchange="app.filterPublicCourses()">
+                            <option value="">所有院系</option>
+                            ${depts.map(d => `<option value="${d}">${d}</option>`).join('')}
+                        </select>
+                        <select id="creditFilter" class="form-input" style="width: 120px;" onchange="app.filterPublicCourses()">
+                            <option value="">所有学分</option>
+                            ${credits.map(c => `<option value="${c}">${c} 学分</option>`).join('')}
+                        </select>
+                        <input type="text" id="keywordFilter" placeholder="搜索课程名/编号..." class="form-input" style="width: 200px;" oninput="app.filterPublicCourses()">
+                    </div>
                 </div>
                 <div id="publicCourseList">
                     ${this.renderCourseCards(courses)}
@@ -157,6 +171,7 @@ const app = {
                             <span style="margin-left:8px;">${c.teacherName}</span>
                             <span style="float:right;">${c.credit} 学分</span>
                         </div>
+                        <div style="font-size:12px; color:#555; margin-bottom:8px; padding: 4px 8px; background: #eef2f5; border-radius: 4px; display: inline-block;">${c.dept}</div>
                         <p style="font-size:13px; color:#888; margin-bottom:15px; height: 40px; overflow:hidden;">${c.desc}</p>
                         <div style="font-size:12px; color:#555; margin-bottom:5px;">${c.schedule} | ${c.classroom}</div>
                         <div style="font-size:12px; color:#666; font-style: italic;">要求: ${c.requirements || '无'}</div>
@@ -166,16 +181,30 @@ const app = {
         `;
     },
 
-    filterPublicCourses(keyword) {
-        const courses = DB.get('courses').filter(c =>
-            c.status === 'published' &&
-            (
-                c.name.includes(keyword) || 
-                c.id.includes(keyword) || 
-                c.dept.includes(keyword) ||
-                String(c.credit).includes(keyword)
-            )
-        );
+    filterPublicCourses() {
+        const keyword = document.getElementById('keywordFilter').value.trim();
+        const dept = document.getElementById('deptFilter').value;
+        const credit = document.getElementById('creditFilter').value;
+
+        const courses = DB.get('courses').filter(c => {
+            if (c.status !== 'published') return false;
+            
+            // Filter by Dept
+            if (dept && c.dept !== dept) return false;
+
+            // Filter by Credit
+            if (credit && String(c.credit) !== credit) return false;
+
+            // Filter by Keyword
+            if (keyword) {
+                return c.name.includes(keyword) || 
+                       c.id.includes(keyword) || 
+                       c.dept.includes(keyword) ||
+                       String(c.credit).includes(keyword);
+            }
+            
+            return true;
+        });
         document.getElementById('publicCourseList').innerHTML = this.renderCourseCards(courses);
     },
 
