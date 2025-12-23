@@ -36,7 +36,55 @@
                     <button type="submit" class="btn btn-primary" style="width: 100%;">登录</button>
                 </div>
                 <div style="text-align: center; font-size: 12px; color: #86868b;">
-                    <a href="#" onclick="alert('请联系管理员重置密码')" style="color: #0066cc; text-decoration: none;">忘记密码？</a>
+                    <a href="#" onclick="app.showForgotPasswordModal()" style="color: #0066cc; text-decoration: none;">忘记密码？</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="forgotPasswordModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="app.hideForgotPasswordModal()">&times;</span>
+            <h2 class="card-title" style="text-align: center; margin-bottom: 20px;">重置密码</h2>
+            <form id="forgotPasswordForm" onsubmit="app.handleForgotPassword(event)">
+                <div class="form-group" id="fpStep1">
+                    <label class="form-label">账号 (学号/工号)</label>
+                    <input type="text" class="form-input" id="fpUsername" required placeholder="请输入账号">
+                    <button type="button" class="btn btn-primary" onclick="app.verifyUserAndSendCode()" style="width: 100%; margin-top: 15px;">验证并发送验证码</button>
+                </div>
+                
+                <div id="fpStep2" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">验证码</label>
+                        <input type="text" class="form-input" id="fpCode" placeholder="请输入收到的验证码">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">新密码</label>
+                        <input type="password" class="form-input" id="fpNewPassword" placeholder="请输入新密码">
+                    </div>
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">重置密码</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="changePasswordModal" class="modal">
+        <div class="modal-content">
+            <h2 class="card-title" style="text-align: center; margin-bottom: 20px;">首次登录需修改密码</h2>
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">为了您的账户安全，请设置一个新的密码。</p>
+            <form id="changePasswordForm" onsubmit="app.handleChangePassword(event)">
+                <div class="form-group">
+                    <label class="form-label">新密码</label>
+                    <input type="password" class="form-input" id="cpNewPassword" required placeholder="请输入新密码">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认新密码</label>
+                    <input type="password" class="form-input" id="cpConfirmPassword" required placeholder="请再次输入新密码">
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">确认修改</button>
                 </div>
             </form>
         </div>

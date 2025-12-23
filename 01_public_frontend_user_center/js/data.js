@@ -342,6 +342,14 @@ const generateMockCourses = (count) => {
         '涵盖基础、进阶与应用，帮助构建完整知识体系。'
     ];
 
+    const reqTemplates = [
+        '无特殊要求，面向全校本科生开放。',
+        '建议先修计算机基础或相关课程。',
+        '仅限本专业学生选修。',
+        '需具备一定的编程基础。',
+        '建议大二及以上年级学生选修。'
+    ];
+
     const weekdays = ['周一', '周二', '周三', '周四', '周五'];
     const sessions = ['1-2节', '3-4节', '5-6节', '7-8节', '9-10节'];
     const buildings = ['N', 'S', 'H', 'B', 'C', 'D'];
@@ -378,6 +386,7 @@ const generateMockCourses = (count) => {
         const baseName = courseNames[i - 1] || `通识选修课${pad3(i)}`;
         const dept = depts[(i - 1) % depts.length];
         const desc = `${baseName}：${descTemplates[(i - 1) % descTemplates.length]}`;
+        const requirements = reqTemplates[(i - 1) % reqTemplates.length];
         const schedule = `${weekdays[(i - 1) % weekdays.length]} ${sessions[(i - 1) % sessions.length]}`;
         const classroom = `${buildings[(i - 1) % buildings.length]}${String(101 + ((i - 1) % 40)).padStart(3, '0')}`;
         
@@ -392,6 +401,7 @@ const generateMockCourses = (count) => {
             teacherName: teacher.teacherName,
             dept,
             desc,
+            requirements,
             status: 'published',
             schedule,
             classroom,
@@ -434,6 +444,7 @@ const generateMockCourses = (count) => {
         teacherName: '王老师',
         dept: '数学学院',
         desc: '理工科基础课程。',
+        requirements: '无特殊要求。',
         status: 'published',
         schedule: '周三 3-4节',
         classroom: 'H101',
@@ -579,7 +590,7 @@ const DB = {
                     }
                 }
 
-                if (updated !== parsed || needsSemester) {
+                if (updated !== parsed || needsSemester || needsReq) {
                     localStorage.setItem('grade_courses', JSON.stringify(updated));
                 }
             } catch (e) {
@@ -654,6 +665,39 @@ const DB = {
     set(table, data) {
         localStorage.setItem('grade_' + table, JSON.stringify(data));
     },
+    async resetPassword(username, newPassword) {
+        const users = this.get('users');
+        const userIndex = users.findIndex(u => u.id === username);
+        if (userIndex === -1) return { success: false, error: '用户不存在' };
+
+        const user = users[userIndex];
+        try {
+            const record = await Security.createPasswordRecord(newPassword);
+            user.passwordAlgo = record.algo;
+            user.passwordIterations = record.iterations;
+            user.salt = record.salt;
+            user.passwordHash = record.hash;
+            user.loginAttempts = 0;
+            user.lockUntil = 0;
+            // Resetting password via email also clears the forced change flag
+            user.mustChangePassword = false;
+            
+            users[userIndex] = user;
+            this.set('users', users);
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
+    },
+
+    async changePassword(username, newPassword) {
+        return this.resetPassword(username, newPassword);
+    },
+    
+    findUser(username) {
+        return this.get('users').find(u => u.id === username);
+    },
+
     async login(username, password) {
         const users = this.get('users');
         const userIndex = users.findIndex(u => u.id === username);
