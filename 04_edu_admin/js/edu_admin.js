@@ -279,37 +279,38 @@ Object.assign(app, {
     this.showEduModal("添加学生", modalContent);
   },
 
-  handleAddStudent(e) {
-    e.preventDefault();
-
-    const users = DB.get("users");
-    const newId = document.getElementById("newStudentId").value.trim();
-
-    if (users.find((u) => u.id === newId)) {
-      alert("学号已存在！");
-      return;
-    }
-
-    const newStudent = {
-      id: newId,
-      name: document.getElementById("newStudentName").value.trim(),
-      role: "student",
-      email: `${newId.toLowerCase()}@szu.edu.cn`,
-      class: document.getElementById("newStudentClass").value.trim(),
-      major: document.getElementById("newStudentMajor").value.trim(),
-      passwordHash: btoa(newId + "password"),
-      salt: newId,
-      loginAttempts: 0,
-      lockUntil: 0,
-    };
-
-    users.push(newStudent);
-    DB.set("users", users);
-    DB.log("添加学生", `学号: ${newId}, 姓名: ${newStudent.name}`); //日志
-    this.closeEduModal();
-    this.showEduToast("✅ 添加成功");
-    this.renderEduAdminStudents();
-  },
+    handleAddStudent(e) {
+        e.preventDefault();
+        
+        const users = DB.get('users');
+        const newId = document.getElementById('newStudentId').value.trim();
+        
+        if (users.find(u => u.id === newId)) {
+            alert('学号已存在！');
+            return;
+        }
+        
+        const newStudent = {
+            id: newId,
+            name: document.getElementById('newStudentName').value.trim(),
+            role: 'student',
+            email: `${newId.toLowerCase()}@szu.edu.cn`,
+            class: document.getElementById('newStudentClass').value.trim(),
+            major: document.getElementById('newStudentMajor').value.trim(),
+            passwordHash: btoa(newId + 'password'),
+            salt: newId,
+            loginAttempts: 0,
+            lockUntil: 0,
+            mustChangePassword: true
+        };
+        
+        users.push(newStudent);
+        DB.set('users', users);
+        
+        this.closeEduModal();
+        this.showEduToast('✅ 添加成功');
+        this.renderEduAdminStudents();
+    },
 
   editStudent(studentId) {
     const student = DB.get("users").find((u) => u.id === studentId);
@@ -645,35 +646,35 @@ Object.assign(app, {
     return rows;
   },
 
-  importStudentsDemo_OLD() {
-    if (!confirm("模拟批量导入学生数据（将添加10名测试学生）？")) return;
-
-    const users = DB.get("users");
-    const timestamp = Date.now();
-    const newStudents = [];
-
-    for (let i = 1; i <= 10; i++) {
-      const id = `S${timestamp}${String(i).padStart(3, "0")}`;
-      newStudents.push({
-        id: id,
-        name: `测试学生${i}`,
-        role: "student",
-        email: `${id.toLowerCase()}@szu.edu.cn`,
-        class: "2024级计算机1班",
-        major: "计算机科学与技术",
-        passwordHash: btoa(id + "password"),
-        salt: id,
-        loginAttempts: 0,
-        lockUntil: 0,
-      });
-    }
-
-    users.push(...newStudents);
-    DB.set("users", users);
-    DB.log("批量导入学生", `成功: ${successCount} 人, 失败: ${failCount} 人`); //日志
-    this.showEduToast(`✅ 成功导入${newStudents.length}名学生`);
-    this.renderEduAdminStudents();
-  },
+    importStudentsDemo_OLD() {
+        if (!confirm('模拟批量导入学生数据（将添加10名测试学生）？')) return;
+        
+        const users = DB.get('users');
+        const timestamp = Date.now();
+        const newStudents = [];
+        
+        for (let i = 1; i <= 10; i++) {
+            const id = `S${timestamp}${String(i).padStart(3, '0')}`;
+            newStudents.push({
+                id: id,
+                name: `测试学生${i}`,
+                role: 'student',
+                email: `${id.toLowerCase()}@szu.edu.cn`,
+                class: '2024级计算机1班',
+                major: '计算机科学与技术',
+                passwordHash: btoa(id + 'password'),
+                salt: id,
+                loginAttempts: 0,
+                lockUntil: 0
+            });
+        }
+        
+        users.push(...newStudents);
+        DB.set('users', users);
+        
+        this.showEduToast(`✅ 成功导入${newStudents.length}名学生`);
+        this.renderEduAdminStudents();
+    },
 
   // ==================== 教师管理 ====================
   renderEduAdminTeachers() {
@@ -829,37 +830,36 @@ Object.assign(app, {
     this.showEduModal("添加教师", modalContent);
   },
 
-  handleAddTeacher(e) {
-    e.preventDefault();
-
-    const users = DB.get("users");
-    const newId = document.getElementById("newTeacherId").value.trim();
-
-    if (users.find((u) => u.id === newId)) {
-      alert("工号已存在！");
-      return;
-    }
-
-    const newTeacher = {
-      id: newId,
-      name: document.getElementById("newTeacherName").value.trim(),
-      role: "teacher",
-      email:
-        document.getElementById("newTeacherEmail").value.trim() ||
-        `${newId.toLowerCase()}@szu.edu.cn`,
-      passwordHash: btoa(newId + "password"),
-      salt: newId,
-      loginAttempts: 0,
-      lockUntil: 0,
-    };
-
-    users.push(newTeacher);
-    DB.set("users", users);
-    DB.log("添加教师", `工号: ${newId}, 姓名: ${newTeacher.name}`); //日志
-    this.closeEduModal();
-    this.showEduToast("✅ 添加成功");
-    this.renderEduAdminTeachers();
-  },
+    handleAddTeacher(e) {
+        e.preventDefault();
+        
+        const users = DB.get('users');
+        const newId = document.getElementById('newTeacherId').value.trim();
+        
+        if (users.find(u => u.id === newId)) {
+            alert('工号已存在！');
+            return;
+        }
+        
+        const newTeacher = {
+            id: newId,
+            name: document.getElementById('newTeacherName').value.trim(),
+            role: 'teacher',
+            email: document.getElementById('newTeacherEmail').value.trim() || `${newId.toLowerCase()}@szu.edu.cn`,
+            passwordHash: btoa(newId + 'password'),
+            salt: newId,
+            loginAttempts: 0,
+            lockUntil: 0,
+            mustChangePassword: true
+        };
+        
+        users.push(newTeacher);
+        DB.set('users', users);
+        
+        this.closeEduModal();
+        this.showEduToast('✅ 添加成功');
+        this.renderEduAdminTeachers();
+    },
 
   editTeacher(teacherId) {
     const teacher = DB.get("users").find((u) => u.id === teacherId);

@@ -36,7 +36,50 @@
                     <button type="submit" class="btn btn-primary" style="width: 100%;">登录</button>
                 </div>
                 <div style="text-align: center; font-size: 12px; color: #86868b;">
-                    <a href="#" onclick="app.showForgotPasswordModal()" style="color: #0066cc; text-decoration: none;">忘记密码？</a>
+                    <a href="#" onclick="app.showForgotPasswordModal()" style="color: #0066cc; text-decoration: none; margin-right: 15px;">忘记密码？</a>
+                    <a href="#" onclick="app.showRegisterModal()" style="color: #0066cc; text-decoration: none;">注册新账号</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="registerModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="app.hideRegisterModal()">&times;</span>
+            <h2 class="card-title" style="text-align: center; margin-bottom: 20px;">新用户注册</h2>
+            <form id="registerForm" onsubmit="app.handleRegister(event)">
+                <div class="form-group">
+                    <label class="form-label">账号ID (学号/工号)</label>
+                    <input type="text" class="form-input" id="regId" required placeholder="请输入账号ID (如 S001)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">姓名</label>
+                    <input type="text" class="form-input" id="regName" required placeholder="请输入真实姓名">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">邮箱 (用于找回密码)</label>
+                    <input type="email" class="form-input" id="regEmail" required placeholder="请输入邮箱">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">角色</label>
+                    <select class="form-input" id="regRole">
+                        <option value="student">学生</option>
+                        <option value="teacher">教师</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">设置密码</label>
+                    <input type="password" class="form-input" id="regPassword" required placeholder="请输入密码 (至少6位)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认密码</label>
+                    <input type="password" class="form-input" id="regConfirmPassword" required placeholder="请再次输入密码">
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">注册</button>
+                </div>
+                <div style="text-align: center; font-size: 12px;">
+                    <a href="#" onclick="app.showLoginModal()" style="color: #0066cc; text-decoration: none;">已有账号？直接登录</a>
                 </div>
             </form>
         </div>
@@ -82,6 +125,26 @@
                 <div class="form-group">
                     <label class="form-label">确认新密码</label>
                     <input type="password" class="form-input" id="cpConfirmPassword" required placeholder="请再次输入新密码">
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">确认修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="userChangePasswordModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="app.hideUserChangePasswordModal()">&times;</span>
+            <h2 class="card-title" style="text-align: center; margin-bottom: 20px;">修改密码</h2>
+            <form id="userChangePasswordForm" onsubmit="app.handleUserChangePassword(event)">
+                <div class="form-group">
+                    <label class="form-label">新密码</label>
+                    <input type="password" class="form-input" id="ucpNewPassword" required placeholder="请输入新密码">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认新密码</label>
+                    <input type="password" class="form-input" id="ucpConfirmPassword" required placeholder="请再次输入新密码">
                 </div>
                 <div class="form-group">
                     <button type="submit" class="btn btn-primary" style="width: 100%;">确认修改</button>

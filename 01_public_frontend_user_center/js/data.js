@@ -917,6 +917,52 @@ const DB = {
       error: `密码错误 (剩余尝试次数: ${3 - user.loginAttempts})`,
     };
   },
+
+  async register(userInfo) {
+    const users = this.get("users");
+    if (users.find((u) => u.id === userInfo.id)) {
+      return { success: false, error: "该账号ID已存在" };
+    }
+
+    try {
+      const record = await Security.createPasswordRecord(userInfo.password);
+      const newUser = {
+        id: userInfo.id,
+        name: userInfo.name,
+        role: userInfo.role || "student",
+        email: userInfo.email || "",
+        passwordAlgo: record.algo,
+        passwordIterations: record.iterations,
+        salt: record.salt,
+        passwordHash: record.hash,
+        loginAttempts: 0,
+        lockUntil: 0,
+        // Optional: force password change on first login not needed for self-registration
+        mustChangePassword: false,
+      };
+
+      if (userInfo.role === 'student') {
+        newUser.class = "未分配班级"; // Default class
+      }
+
+      users.push(newUser);
+      this.set("users", users);
+      
+      // Log registration
+      const logs = this.get("logs");
+      logs.push({
+        user: newUser.id,
+        action: "User Registration",
+        time: new Date().toISOString(),
+        details: `Registered as ${newUser.role}`
+      });
+      this.set("logs", logs);
+
+      return { success: true, user: newUser };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
 };
 
 DB.init();

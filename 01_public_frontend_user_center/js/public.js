@@ -28,28 +28,33 @@ const app = {
     const username = document.getElementById("username").value;
     const password = document.getElementById("password").value;
 
-    try {
-      const result = await DB.login(username, password);
-      if (result.success) {
-        const user = result.user;
-        this.state.currentUser = user;
-        localStorage.setItem("currentUser", JSON.stringify(user));
+        try {
+            const result = await DB.login(username, password);
+            if (result.success) {
+                const user = result.user;
 
-        app.state.currentUser = user; //同步更新全局 app.state.currentUser
+                // Check for forced password change
+                if (user.mustChangePassword) {
+                    this.state.pendingUser = user;
+                    this.hideLoginModal();
+                    document.getElementById('changePasswordModal').classList.add('active');
+                    alert('为了您的账户安全，首次登录请修改密码');
+                    return;
+                }
 
-        this.hideLoginModal();
-        this.updateNav();
-        this.showToast(
-          `欢迎回来，${user.name} (${this.getRoleName(user.role)})`
-        );
-        this.renderDashboard();
-      } else {
-        alert(result.error);
-      }
-    } catch (err) {
-      alert(err && err.message ? err.message : "登录失败");
-    }
-  },
+                this.state.currentUser = user;
+                localStorage.setItem('currentUser', JSON.stringify(user));
+                this.hideLoginModal();
+                this.updateNav();
+                this.showToast(`欢迎回来，${user.name} (${this.getRoleName(user.role)})`);
+                this.renderDashboard();
+            } else {
+                alert(result.error);
+            }
+        } catch (err) {
+            alert(err && err.message ? err.message : '登录失败');
+        }
+    },
 
   async handleChangePassword(e) {
     e.preventDefault();
@@ -97,6 +102,49 @@ const app = {
     }
   },
 
+  showUserChangePasswordModal() {
+    document.getElementById("userChangePasswordModal").classList.add("active");
+  },
+
+  hideUserChangePasswordModal() {
+    document.getElementById("userChangePasswordModal").classList.remove("active");
+    document.getElementById("userChangePasswordForm").reset();
+  },
+
+  async handleUserChangePassword(e) {
+    e.preventDefault();
+    const newPassword = document.getElementById("ucpNewPassword").value;
+    const confirmPassword = document.getElementById("ucpConfirmPassword").value;
+
+    if (newPassword !== confirmPassword) {
+      alert("两次输入的密码不一致");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      alert("密码长度不能少于6位");
+      return;
+    }
+
+    if (!this.state.currentUser) {
+      alert("用户未登录");
+      return;
+    }
+
+    const result = await DB.changePassword(
+      this.state.currentUser.id,
+      newPassword
+    );
+
+    if (result.success) {
+      alert("密码修改成功，请重新登录");
+      this.hideUserChangePasswordModal();
+      this.logout();
+    } else {
+      alert("密码修改失败: " + result.error);
+    }
+  },
+
   logout() {
     this.state.currentUser = null;
     localStorage.removeItem("currentUser");
@@ -120,6 +168,7 @@ const app = {
     if (this.state.currentUser) {
       navLinks.innerHTML = `
                 <a href="#" onclick="app.renderDashboard()">控制台</a>
+                <a href="#" onclick="app.showUserChangePasswordModal()">修改密码</a>
                 <a href="#" onclick="app.logout()">退出登录</a>
                 <span style="color:white; margin-left:15px; opacity:0.8;">${this.state.currentUser.name}</span>
             `;
